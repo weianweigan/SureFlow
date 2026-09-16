@@ -99,7 +99,7 @@ export default function HomeTabPanel(_props: IDockviewPanelProps<TabParams>) {
     <div className="relative flex h-full w-full items-center justify-center overflow-hidden bg-[var(--sf-surface-soft,#E9E9E9)]">
       {/* 背景图 */}
       <img
-        src="./HomeTab.png"
+        src={`${import.meta.env.BASE_URL}HomeTab.png`}
         alt=""
         className="pointer-events-none absolute inset-0 h-full w-full object-cover"
         draggable={false}

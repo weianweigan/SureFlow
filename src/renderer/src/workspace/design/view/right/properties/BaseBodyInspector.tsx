@@ -19,15 +19,16 @@ import {
 } from '@shared/design/types'
 import { cn } from '@renderer/lib/utils'
 import { Scale, ShieldAlert, Layers } from 'lucide-react'
+import { assetUrl } from '../../../../library/view/typeIcons'
 
 interface BaseBodyInspectorProps {
   projectId: string
 }
 
 const TEMPLATE_OPTIONS: { id: BaseBodyTemplate; name: string; icon: string }[] = [
-  { id: 'box', name: '长方体', icon: '/Block.svg' },
-  { id: 'l-shape', name: 'L型基体', icon: '/LBlock.svg' },
-  { id: 't-shape', name: 'T型基体', icon: '/TBlock.svg' }
+  { id: 'box', name: '长方体', icon: 'Block.svg' },
+  { id: 'l-shape', name: 'L型基体', icon: 'LBlock.svg' },
+  { id: 't-shape', name: 'T型基体', icon: 'TBlock.svg' }
 ]
 
 // 材料密度表 (g/cm³ = kg/dm³)
@@ -88,7 +89,7 @@ export const BaseBodyInspector: React.FC<BaseBodyInspectorProps> = ({ projectId 
                   )}
                 >
                   <img
-                    src={opt.icon}
+                    src={assetUrl(opt.icon)}
                     alt={_t(opt.name)}
                     className={cn(
                       'size-5 shrink-0 object-contain transition-transform',

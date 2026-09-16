@@ -1,0 +1,108 @@
+﻿SureFlow Source-Available & Personal Non-Commercial License
+Version 1.0 (2026)
+
+Copyright (c) 2026 SureFlow Team. All Rights Reserved.
+版权所有 (c) 2026 SureFlow 团队。保留所有权利。
+
+================================================================================
+TERMS AND CONDITIONS (许可条款与条件)
+================================================================================
+
+1. GRANT OF LICENSE (许可授予)
+Subject to the terms and restrictions set forth in this License, the Licensor 
+grants you a limited, personal, revocable, non-exclusive, non-transferable, 
+royalty-free license to download, view, compile, and run the source code solely 
+for individual non-commercial study, learning, evaluation, and non-commercial 
+research purposes on your personal devices.
+
+在遵守本许可协议条款与限制的前提下，版权所有者授予被许可人一项有限的、个人的、
+可撤销的、非排他性的、不可转让的免费许可，允许在个人设备上下载、查看、编译和运行
+本软件源代码，仅用于个人的非商业性学习、研究、评估目的。
+
+--------------------------------------------------------------------------------
+2. COMMERCIAL USE RESTRICTIONS (严格禁止商业使用)
+Commercial use of this Software, its source code, compiled binaries, or any of 
+its assets, in whole or in part, is STRICTLY PROHIBITED without prior explicit 
+written permission from the Licensor.
+Commercial use includes, but is not limited to:
+  (a) Using this Software or any of its outputs directly or indirectly to produce 
+      commercial valve blocks, generate commercial revenue, or provide commercial 
+      engineering/design services;
+  (b) Installing or utilizing this Software in any corporate, commercial enterprise, 
+      business entity, or commercial production environment;
+  (c) Renting, leasing, licensing, sublicensing, selling, or charging fees for 
+      access to this Software or any derivative software.
+
+未经版权所有者事先明确书面许可，严禁将本软件、源代码、编译二进制文件或其任何资源资产
+全部或部分用于商业目的。商业用途包括但不限于：
+  (a) 直接或间接使用本软件或其输出成果用于商业阀块生产、获取商业收入或提供收费工程设计服务；
+  (b) 在任何企业、商业组织、公司或商业生产环境中部署或运行本软件；
+  (c) 出租、转让、销售、分许可或向第三方收费以提供本软件或衍生服务。
+
+--------------------------------------------------------------------------------
+3. PROHIBITION OF MODIFICATION & REDISTRIBUTION (禁止修改再分发)
+  (a) NO REDISTRIBUTION: You may NOT redistribute, publish, mirror, host, 
+      sub-license, or convey copies of this Software (in either source code or 
+      binary forms) to any third party or public repository.
+  (b) NO DERIVATIVE WORKS: You may NOT distribute, publish, or release modified 
+      versions, forks, or derivative works based on this Software or any of its 
+      code. Any personal modification must remain strictly local and private for 
+      individual study.
+
+  (a) 禁止重新分发：被许可人不得向任何第三方分发、公开重新发布、镜像、托管、转授权
+      或传输本软件的任何副本（无论是源代码还是二进制形式）。
+  (b) 禁止衍生分发：严禁公开发布、传播基于本软件源码修改后的分支（Fork）、派生版本
+      或二次开发产品。任何个人修改必须仅保留在个人本地环境用于研究，不得对外传播。
+
+--------------------------------------------------------------------------------
+4. SPECIAL PROTECTION FOR CAVITY LIBRARIES (孔腔库专有保护条款)
+The built-in and packaged hydraulic Cavity Libraries (including but not limited to 
+3D CAD models, STEP/BREP data, cavity cross-section geometries, parameter schemas, 
+metadata and JSON/YAML definitions 
+located under "resources/builtin-libraries", ".sfzip" files, or generated caches) 
+are proprietary and confidential engineering assets of the Licensor:
+  (a) INDEPENDENT RETENTION OF OWNERSHIP: The Licensor retains full, exclusive, 
+      and unencumbered worldwide intellectual property rights, database rights, 
+      and ownership over the Cavity Libraries.
+  (b) NO SEPARATE COMMERCIAL USE OR EXTRACTION: You shall NOT extract, scrape, 
+      decouple, export, reverse-engineer, convert, or repackage the Cavity Libraries 
+      for use outside of this Software, nor use them as a database/plug-in for any 
+      other CAD/CAM/hydraulic design software.
+  (c) NO RESALE OR COMMERCIAL SHARING: The Cavity Libraries shall NOT be sold, 
+      bundled, traded, or utilized for commercial hydraulic tooling, manufacturing, 
+      or catalog services.
+
+内置及打包的液压孔腔库（包括但不限于位于 "resources/builtin-libraries"、".sfzip" 文件
+或缓存中的三维几何模型、STEP/BREP 数据、剖面特征、参数表和JSON/YAML元数据配置）
+属于版权所有者的核心专有数据资产：
+  (a) 所有权完全保留：版权所有者对孔腔库享有完整、排他的全球知识产权、数据库权利与所有权。
+  (b) 严禁单独提取与商业利用：严禁将孔腔库从本软件中单独剥离、提取、爬取、逆向转换、
+      重打包，用于本软件之外的任何其他 CAD/CAM 软件、建模插件或第三方系统。
+  (c) 严禁倒卖与商用服务：孔腔库严禁单独或打包用于销售、商业共享、商业加工刀具库适配
+      或对外商业选型服务。
+
+--------------------------------------------------------------------------------
+5. THIRD-PARTY NOTICES (第三方开源组件声明)
+This Software incorporates certain third-party open-source components (e.g., 
+Electron, React, Three.js, Manifold-3D, Open CASCADE WebAssembly wrappers, etc.). 
+Each third-party component is governed by its respective open-source license 
+(such as MIT, Apache-2.0, ISC, OFL-1.1, LGPL-2.1 with exception). Nothing in this 
+License shall restrict or override the rights granted to you by those respective 
+upstream open-source licenses regarding their separate unmodified libraries. 
+Please refer to THIRD_PARTY_LICENSES.md for full attribution notices.
+
+本软件集成了部分第三方开源组件（如 Electron、React、Three.js、Manifold-3D、
+Open CASCADE WebAssembly 封装库等）。各第三方组件分别遵守其原有的开源许可证
+（如 MIT、Apache-2.0、ISC、OFL-1.1、LGPL-2.1 with exception 等）。本协议中的任何条款
+均不限制用户依据上述第三方开源许可协议对其独立原生组件所享有的合法权利。
+详见 THIRD_PARTY_LICENSES.md。
+
+--------------------------------------------------------------------------------
+6. DISCLAIMER OF WARRANTY & LIMITATION OF LIABILITY (免责声明)
+THE SOFTWARE AND CAVITY LIBRARIES ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY 
+KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF 
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, STRUCTURAL ACCURACY, OR 
+NON-INFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE 
+FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, 
+TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE 
+OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

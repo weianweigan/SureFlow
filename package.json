@@ -1,6 +1,6 @@
 {
   "name": "sureflow",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "阀块设计软件 - 基于 Electron + React + React Three Fiber 的独立桌面应用",
   "main": "./out/main/index.js",
   "author": "SureFlow Team",
@@ -9,7 +9,8 @@
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
     "sync:builtin": "node tools/fetch-builtin-library.cjs",
-    "prebuild": "npm run sync:builtin",
+    "sync:license": "node tools/sync-license.cjs",
+    "prebuild": "npm run sync:builtin && npm run sync:license",
     "build": "npm run typecheck && electron-vite build",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
@@ -161,7 +162,8 @@
     "nsis": {
       "oneClick": false,
       "perMachine": true,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "license": "build/license.txt"
     },
     "publish": [
       {

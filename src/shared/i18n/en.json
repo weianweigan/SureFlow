@@ -20,6 +20,8 @@
   "v0.1.0 · 脚手架": "v0.1.0 · Prototype",
   "设置与窗口控制": "Settings and window controls",
   "当前版本为预览版本": "Current version is a preview release",
+  "预览开发版本": "Preview Release",
+  "当前版本处于积极开发与早期预览阶段，功能与数据结构仍在持续迭代，请勿用于实际生产环境！": "Currently in active development and early preview. Features and data structures are subject to frequent changes. Do NOT use in production!",
   "设置": "Settings",
   "最小化": "Minimize",
   "还原": "Restore",

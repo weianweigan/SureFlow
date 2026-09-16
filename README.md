@@ -4,6 +4,10 @@ English | [简体中文](./README.zh.md)
 
 An independent desktop application dedicated to providing a professional and lightweight 3D design experience for hydraulic valve blocks (manifolds).
 
+> [!WARNING]
+> ⚠️ **WARNING: Currently under active development — DO NOT use in production!**
+> Core features, data structures, and algorithms are undergoing rapid iteration and changes.
+
 > ![SureFlow Main UI](./resources/main-ui.en.png) 
 > ![Cavity Library](./resources/cavity-library.png) 
 

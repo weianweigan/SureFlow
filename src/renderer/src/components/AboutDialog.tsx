@@ -3,6 +3,7 @@ import { X, ExternalLink, ShieldCheck, FileText, Code2, Copy, Check } from 'luci
 import { useLocale } from '@renderer/i18n/useLocale'
 import { t } from '@shared/i18n'
 import { Button } from './ui/button'
+import { version } from '../../../../package.json'
 
 interface AboutDialogProps {
   isOpen: boolean
@@ -138,7 +139,7 @@ export const AboutDialog: FC<AboutDialogProps> = ({ isOpen, onClose }) => {
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-semibold tracking-tight text-foreground">SureFlow</h2>
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium font-mono bg-primary/10 text-primary border border-primary/25">
-                  v0.1.0 Preview
+                  v{version} Preview
                 </span>
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">

@@ -28,6 +28,7 @@ import {
 import {
   BackgroundPreset,
   BACKGROUND_PRESETS,
+  DEFAULT_BACKGROUND_PRESET,
   getSavedBackgroundPreset,
   saveBackgroundPreset,
   ViewportBackground,
@@ -381,9 +382,9 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
     }
   }, [session?.selected])
 
-  // 场景环境背景预设与持久化（默认 SolidWorks 经典三点渐变）
+  // 场景环境背景预设与持久化（默认为纯白图纸）
   const [bgPreset, setBgPreset] = useState<BackgroundPreset>(() => getSavedBackgroundPreset())
-  const activeBgConfig = BACKGROUND_PRESETS[bgPreset] || BACKGROUND_PRESETS.solidworks
+  const activeBgConfig = BACKGROUND_PRESETS[bgPreset] || BACKGROUND_PRESETS[DEFAULT_BACKGROUND_PRESET]
 
   const handleBgPresetChange = useCallback((preset: BackgroundPreset) => {
     setBgPreset(preset)
@@ -1336,7 +1337,7 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
         >
           <SnapGuides projectId={projectId} />
           <MarqueeSelection projectId={projectId} dimensions={[sx, sy, sz]} />
-          {/* SolidWorks 风格三点垂直渐变背景 / 多场景环境底色 */}
+          {/* 视口场景环境背景（默认纯白图纸） */}
           <ViewportBackground preset={bgPreset} />
 
           {/* CAD 级视线随动前向补光（直射深孔阶梯内壁，消除死黑） */}

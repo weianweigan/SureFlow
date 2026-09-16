@@ -295,15 +295,15 @@ export function getFacesForTemplate(template?: BaseBodyTemplate): BaseFaceDefini
 }
 
 export function getBaseBodyIcon(body: BaseBodyConfig): string {
-  if (body.type === 'step') return '/ImportStep.svg'
+  if (body.type === 'step') return 'ImportStep.svg'
   switch (body.template) {
     case 'l-shape':
-      return '/LBlock.svg'
+      return 'LBlock.svg'
     case 't-shape':
-      return '/TBlock.svg'
+      return 'TBlock.svg'
     case 'box':
     default:
-      return '/Block.svg'
+      return 'Block.svg'
   }
 }
 

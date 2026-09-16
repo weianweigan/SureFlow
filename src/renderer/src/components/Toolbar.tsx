@@ -24,7 +24,7 @@ export const Toolbar: FC<ToolbarProps> = ({ viewPreset, onViewChange }) => {
   return (
     <header className="toolbar">
       <div className="toolbar__title">
-        <img className="toolbar__logo" src="logo.svg" alt="SureFlow" />
+        <img className="toolbar__logo" src={`${import.meta.env.BASE_URL}logo.svg`} alt="SureFlow" />
         {_t("SureFlow · 阀块设计")}</div>
 
       <div className="toolbar__divider" />

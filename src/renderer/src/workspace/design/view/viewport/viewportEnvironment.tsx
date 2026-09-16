@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState, type FC } from 'react'
 import * as THREE from 'three'
 import { useThree } from '@react-three/fiber'
 
-export type BackgroundPreset = 'solidworks' | 'neutral-gray' | 'pure-white' | 'dark-blueprint'
+export type BackgroundPreset = 'pure-white' | 'solidworks' | 'neutral-gray' | 'dark-blueprint'
+
+export const DEFAULT_BACKGROUND_PRESET: BackgroundPreset = 'pure-white'
 
 export interface BackgroundPresetConfig {
   id: BackgroundPreset
@@ -16,6 +18,16 @@ export interface BackgroundPresetConfig {
 }
 
 export const BACKGROUND_PRESETS: Record<BackgroundPreset, BackgroundPresetConfig> = {
+  'pure-white': {
+    id: 'pure-white',
+    label: '纯白图纸',
+    description: '纯白平整工程图背景，适合出图报告与文档截图',
+    topColor: '#ffffff',
+    midColor: '#ffffff',
+    bottomColor: '#ffffff',
+    isDark: false,
+    cssGradient: '#ffffff'
+  },
   solidworks: {
     id: 'solidworks',
     label: 'SolidWorks 经典',
@@ -35,16 +47,6 @@ export const BACKGROUND_PRESETS: Record<BackgroundPreset, BackgroundPresetConfig
     bottomColor: '#f1f5f9',
     isDark: false,
     cssGradient: 'linear-gradient(180deg, #cbd5e1 0%, #e2e8f0 50%, #f1f5f9 100%)'
-  },
-  'pure-white': {
-    id: 'pure-white',
-    label: '纯白图纸',
-    description: '纯白平整工程图背景，适合出图报告与文档截图',
-    topColor: '#ffffff',
-    midColor: '#ffffff',
-    bottomColor: '#ffffff',
-    isDark: false,
-    cssGradient: '#ffffff'
   },
   'dark-blueprint': {
     id: 'dark-blueprint',
@@ -69,7 +71,7 @@ export function getSavedBackgroundPreset(): BackgroundPreset {
   } catch {
     // 忽略本地存储异常
   }
-  return 'solidworks'
+  return DEFAULT_BACKGROUND_PRESET
 }
 
 export function saveBackgroundPreset(preset: BackgroundPreset): void {
@@ -85,7 +87,7 @@ export function saveBackgroundPreset(preset: BackgroundPreset): void {
  * 显存占用不足 4KB，零额外 Shader 开销，且让 canvas.toDataURL 截取的离线位图天然保留渐变底衬。
  */
 export function createGradientTexture(preset: BackgroundPreset): THREE.CanvasTexture {
-  const config = BACKGROUND_PRESETS[preset] || BACKGROUND_PRESETS.solidworks
+  const config = BACKGROUND_PRESETS[preset] || BACKGROUND_PRESETS[DEFAULT_BACKGROUND_PRESET]
   const canvas = document.createElement('canvas')
   canvas.width = 2
   canvas.height = 512

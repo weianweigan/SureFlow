@@ -4,6 +4,10 @@
 
 一款独立桌面应用，专注于提供专业、轻量级的液压阀块（集成块）三维设计体验。
 
+> [!WARNING]
+> ⚠️ **警告：本项目当前处于积极开发阶段，请勿用于生产环境！**
+> 核心功能、数据格式与算法仍在持续迭代与调整中。
+
 > ![SureFlow 主界面截图](./resources/main-ui.zh.png) 
 > ![SureFlow 孔腔库截图](./resources/cavity-library.png) 
 

@@ -200,7 +200,7 @@ export const FeatureTreePanel: FC<FeatureTreePanelProps> = ({ projectId }) => {
   const [sx, sy, sz] = doc.baseBody.dimensions
 
   const isBaseSelected = selected?.type === 'base'
-  const baseIcon = getBaseBodyIcon(doc.baseBody)
+  const baseIcon = assetUrl(getBaseBodyIcon(doc.baseBody))
 
   const shapeLabels: Record<string, string> = {
     box: _t("长方体"),

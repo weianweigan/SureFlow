@@ -15,7 +15,8 @@ export const TYPE_ICONS: Record<CavityType, string> = {
 
 export const CATEGORY_ICON = 'Category.svg'
 
-/** public 资源绝对路径（BASE_URL 兼容 dev/build） */
+/** public 资源绝对路径（BASE_URL 兼容 dev/build，并自动剥离前导斜杠防误用） */
 export function assetUrl(file: string): string {
-  return `${import.meta.env.BASE_URL}${file}`
+  const clean = file.startsWith('/') ? file.slice(1) : file
+  return `${import.meta.env.BASE_URL}${clean}`
 }

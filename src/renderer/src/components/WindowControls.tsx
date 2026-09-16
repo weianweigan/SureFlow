@@ -27,9 +27,25 @@ export function WindowControls(): React.ReactElement {
 
   return (
     <div className="sf-window-controls" role="toolbar" aria-label={_t("设置与窗口控制")}>
-      <span className="sf-window-controls__preview-tag" title={_t("当前版本为预览版本")}>
-        {_t("Preview")}
-      </span>
+      <div className="sf-window-controls__preview-wrapper">
+        <span
+          className="sf-window-controls__preview-tag"
+          role="note"
+          tabIndex={0}
+          aria-label={_t("当前版本处于积极开发与早期预览阶段，功能与数据结构仍在持续迭代，请勿用于实际生产环境！")}
+        >
+          {_t("Preview")}
+        </span>
+        <div className="sf-window-controls__preview-tooltip" role="tooltip">
+          <div className="sf-window-controls__preview-tooltip-header">
+            <span aria-hidden="true">⚠️</span>
+            <span>{_t("预览开发版本")}</span>
+          </div>
+          <p className="sf-window-controls__preview-tooltip-body">
+            {_t("当前版本处于积极开发与早期预览阶段，功能与数据结构仍在持续迭代，请勿用于实际生产环境！")}
+          </p>
+        </div>
+      </div>
       <AppMenu />
       <div className="sf-window-controls__divider" role="separator" aria-orientation="vertical" />
       <button
