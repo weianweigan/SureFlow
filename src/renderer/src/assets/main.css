@@ -1,0 +1,374 @@
+@import 'tailwindcss';
+
+/* ============================================================
+ * SureFlow 设计令牌 —— 对齐 Design.md（黑白编辑风 + 粉彩色块）
+ *
+ * 体系：单色铬层（黑 #000 / 白 #fff / hairline #e6e6e6）承载
+ * 全部交互组件；粉彩色块仅用于叙事区块。胶囊是唯一按钮形状。
+ * ============================================================ */
+
+:root {
+  /* ---- Design.md colors ---- */
+  --sf-ink: #000000;
+  --sf-canvas: #ffffff;
+  --sf-hairline: #D1D1D1;
+  --sf-hairline-soft: #f1f1f1;
+  --sf-surface-soft: #E9E9E9;
+  --sf-accent-magenta: #ff3d8b;
+  --sf-success: #1ea64a;
+  --sf-block-lime: #dceeb1;
+  --sf-block-lilac: #c5b0f4;
+  --sf-block-cream: #f4ecd6;
+  --sf-block-pink: #efd4d4;
+  --sf-block-mint: #c8e6cd;
+  --sf-block-coral: #f3c9b6;
+  --sf-block-navy: #1f1d3d;
+
+  /* ---- Design.md 字体（figmaSans/figmaMono 开源替代） ---- */
+  --sf-font-sans: 'Inter Variable', 'Inter', -apple-system, 'Segoe UI',
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+  --sf-font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', 'Cascadia Mono',
+    Consolas, menlo, monospace;
+
+  /* ============================================================
+   * shadcn/ui 变量 → Design.md 映射（浅色主题）
+   * PRD-FR-03-01 §6.1：dockview 主题变量亦映射到本 token 体系
+   * ============================================================ */
+  --background: var(--sf-canvas);
+  --foreground: var(--sf-ink);
+  --card: var(--sf-canvas);
+  --card-foreground: var(--sf-ink);
+  --popover: var(--sf-canvas);
+  --popover-foreground: var(--sf-ink);
+  /* button-primary：黑底白字 */
+  --primary: var(--sf-ink);
+  --primary-foreground: #ffffff;
+  /* button-secondary / 次级表面：surface-soft */
+  --secondary: var(--sf-surface-soft);
+  --secondary-foreground: var(--sf-ink);
+  --muted: var(--sf-surface-soft);
+  /* 辅助文字：中性灰（单色系唯一灰阶文本角色；层级仍优先用字重表达） */
+  --muted-foreground: hsl(0 0% 40%);
+  /* 选中 / 激活状态底色：hairline-soft（替代原浅蓝 #E8F3FF） */
+  --accent: var(--sf-hairline-soft);
+  --accent-foreground: var(--sf-ink);
+  --destructive: hsl(0 72% 51%);
+  --destructive-foreground: #ffffff;
+  /* 1px hairline 边框（表单、卡片、表格分隔） */
+  --border: var(--sf-hairline);
+  --input: var(--sf-hairline);
+  /* 焦点环：黑（强调 = primary 表面） */
+  --ring: var(--sf-ink);
+  --radius: 0.5rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --font-sans: var(--sf-font-sans);
+  --font-mono: var(--sf-font-mono);
+  /* Design.md 粉彩色块 → Tailwind 颜色（sf-block-*） */
+  --color-block-lime: var(--sf-block-lime);
+  --color-block-lilac: var(--sf-block-lilac);
+  --color-block-cream: var(--sf-block-cream);
+  --color-block-pink: var(--sf-block-pink);
+  --color-block-mint: var(--sf-block-mint);
+  --color-block-coral: var(--sf-block-coral);
+  --color-block-navy: var(--sf-block-navy);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: 'kern';
+  }
+}
+
+/* ============================================================
+ * 阀块设计 - 全局样式（单色专业 CAD 风格 · Design.md 体系）
+ * ============================================================ */
+
+:root {
+  --color-bg: var(--sf-canvas);
+  --color-panel: var(--sf-canvas);
+  --color-border: var(--sf-hairline);
+  --color-text: var(--sf-ink);
+  --color-text-muted: hsl(0 0% 40%);
+  --color-accent: var(--sf-ink);
+  --color-accent-hover: hsl(0 0% 26%);
+  --color-hover-soft: var(--sf-surface-soft);
+  --toolbar-height: 48px;
+  --statusbar-height: 28px;
+}
+
+/* 注：不在此处写未分层的 `* { margin: 0; padding: 0 }` reset ——
+ * 未分层声明优先级高于 @layer utilities，会压掉全部 Tailwind spacing utility；
+ * preflight（@layer base）已提供等价 reset */
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--sf-font-sans);
+  font-size: 13px;
+  color: var(--color-text);
+  background: var(--color-bg);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* mono 眉题 / 小注：仅用于分类标签与版本说明（Design.md taxonomy 规则） */
+.sf-caption {
+  font-family: var(--sf-font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+/* 应用整体布局：Tab 管理条工作区 / 状态栏 两段式 */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.app-viewport {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ---------- 工具栏 ---------- */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--toolbar-height);
+  padding: 0 12px;
+  background: var(--color-panel);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.toolbar__title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.26px;
+  margin-right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar__logo {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  display: inline-block;
+  object-fit: contain;
+}
+
+.toolbar__divider {
+  width: 1px;
+  height: 24px;
+  background: var(--color-border);
+  margin: 0 4px;
+}
+
+/* 工具按钮：胶囊是唯一按钮形状（Design.md Do's） */
+.tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 9999px;
+  background: var(--color-panel);
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 480;
+  letter-spacing: -0.1px;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.tool-btn:hover {
+  background: var(--color-hover-soft);
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+/* 主操作 / 选中态：黑底白字（pricing-tab-selected 模式：选中 = primary 表面） */
+.tool-btn--primary,
+.tool-btn--active {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+
+.tool-btn--primary:hover,
+.tool-btn--active:hover {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+  color: #fff;
+}
+
+.tool-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.toolbar__spacer {
+  flex: 1;
+}
+
+/* ---------- 3D 视口 ---------- */
+.viewer {
+  width: 100%;
+  height: 100%;
+}
+
+.viewer canvas {
+  display: block;
+}
+
+/* 视口左上角叠加提示 */
+.viewer__overlay {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.viewer__hint {
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  backdrop-filter: blur(4px);
+}
+
+.viewer__hint b {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+/* ---------- 状态栏 ---------- */
+.statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--statusbar-height);
+  padding: 0 12px;
+  background: var(--color-panel);
+  border-top: 1px solid var(--color-border);
+  font-size: 12px;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.statusbar__group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* 图例色块 */
+.legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.legend__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+/* ---------- 粉彩色块区块（Design.md color-block-section 签名组件） ----------
+ * 叙事区块专用：整块着色 + 24px 圆角 + 48px 内边距，不叠加阴影 */
+.sf-block {
+  border-radius: 24px;
+  padding: 48px;
+}
+
+.sf-block--lime {
+  background: var(--sf-block-lime);
+  color: var(--sf-ink);
+}
+
+.sf-block--lilac {
+  background: var(--sf-block-lilac);
+  color: var(--sf-ink);
+}
+
+.sf-block--cream {
+  background: var(--sf-block-cream);
+  color: var(--sf-ink);
+}
+
+.sf-block--pink {
+  background: var(--sf-block-pink);
+  color: var(--sf-ink);
+}
+
+.sf-block--mint {
+  background: var(--sf-block-mint);
+  color: var(--sf-ink);
+}
+
+.sf-block--coral {
+  background: var(--sf-block-coral);
+  color: var(--sf-ink);
+}
+
+.sf-block--navy {
+  background: var(--sf-block-navy);
+  color: #ffffff;
+}

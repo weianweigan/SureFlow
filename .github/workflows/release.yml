@@ -1,0 +1,88 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win
+            args: --win --x64
+          - os: macos-latest
+            platform: mac
+            args: --mac --arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: Generate changelog and validate tag
+        run: node tools/release-notes.cjs
+      - name: Prepare bundled libraries directory
+        # Automatically fetch or embed official baseline standard library
+        run: npm run sync:builtin
+      - name: Build Apple Silicon helper
+        if: matrix.platform == 'mac'
+        run: npm run build:native
+      - name: Package (signing optional)
+        env:
+          CSC_LINK: ${{ matrix.platform == 'mac' && secrets.MAC_CSC_LINK || matrix.platform == 'win' && secrets.WIN_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.platform == 'mac' && secrets.MAC_CSC_KEY_PASSWORD || matrix.platform == 'win' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npx electron-builder --config electron-builder.config.cjs ${{ matrix.args }} --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          if-no-files-found: error
+          path: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.zip
+            dist/*.blockmap
+            dist/latest*.yml
+      - uses: actions/upload-artifact@v4
+        if: matrix.platform == 'mac'
+        with:
+          name: release-notes
+          include-hidden-files: true
+          path: .release-notes.md
+  publish:
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: artifacts
+      - name: Publish complete release with changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          shopt -s nullglob
+          gh release create "$TAG" --verify-tag --draft --title "SureFlow $TAG" --notes-file artifacts/.release-notes.md
+          FILES=(artifacts/*.exe artifacts/*.dmg artifacts/*.zip artifacts/*.blockmap artifacts/*.yml)
+          gh release upload "$TAG" "${FILES[@]}" --clobber
+          gh release edit "$TAG" --draft=false --latest

@@ -1,0 +1,30 @@
+node_modules
+dist
+out
+.DS_Store
+*.log
+.vite
+
+# 导出文件
+*.step
+*.glb
+*.step.cache
+
+# library
+resources/builtin-libraries/
+libraries/
+# Generated release notes
+.release-notes.md
+
+# AI
+.workbuddy-ai
+.workbuddy
+
+#docs
+docs/
+prd/
+
+# env
+.env
+.env.*
+*.local

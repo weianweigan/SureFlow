@@ -1,0 +1,146 @@
+import type { UpdateState } from '../shared/updater'
+import type { AssociatedExtension, FileAssociationInfo } from '../shared/settings/fileAssociations'
+import { contextBridge, ipcRenderer } from 'electron'
+import type { CavityLibrary, LibrarySummary, ImportSource } from '../shared/cavity/types'
+import type { SfbProject } from '../shared/design/types'
+
+/**
+ * 通过 contextBridge 安全暴露给渲染进程的 API。
+ * 后续的文件读写、工程管理、导出等能力都应在这里按需扩展，
+ * 并通过 ipcRenderer.invoke 与主进程通信。
+ */
+const api = {
+  platform: process.platform,
+  versions: {
+    electron: process.versions.electron,
+    chrome: process.versions.chrome,
+    node: process.versions.node
+  },
+  openExternal: (url: string): Promise<void> => ipcRenderer.invoke('app:open-external', url)
+} as const
+
+/**
+ * 自定义窗口控制（无边框窗口）：最小化 / 最大化还原 / 关闭。
+ * 主进程对应 channel 见 src/main/index.ts。
+ */
+const windowControls = {
+  minimize: (): void => ipcRenderer.send('window:minimize'),
+  toggleMaximize: (): void => ipcRenderer.send('window:toggle-maximize'),
+  close: (): void => ipcRenderer.send('window:close'),
+  isMaximized: (): Promise<boolean> => ipcRenderer.invoke('window:is-maximized'),
+  /** 订阅最大化状态变化，返回取消订阅函数 */
+  onMaximizedChange: (cb: (maximized: boolean) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, maximized: boolean): void => cb(maximized)
+    ipcRenderer.on('window:maximized-changed', listener)
+    return () => {
+      ipcRenderer.removeListener('window:maximized-changed', listener)
+    }
+  }
+} as const
+
+/**
+ * 库管理（孔腔库编辑器）：与 src/main/ipc/libraryIpc.ts 的 channel 一一对应。
+ */
+const libraryApi = {
+  list: (): Promise<LibrarySummary[]> => ipcRenderer.invoke('library:list'),
+  read: (dirPath: string): Promise<CavityLibrary> => ipcRenderer.invoke('library:read', dirPath),
+  save: (dirPath: string, doc: CavityLibrary): Promise<void> =>
+    ipcRenderer.invoke('library:save', { dirPath, doc }),
+  create: (doc: CavityLibrary): Promise<LibrarySummary> =>
+    ipcRenderer.invoke('library:create', doc),
+  import: (src: ImportSource): Promise<LibrarySummary> =>
+    ipcRenderer.invoke('library:import', src),
+  pickSource: (): Promise<ImportSource | null> => ipcRenderer.invoke('library:pick-source'),
+  export: (dirPath: string, defaultName?: string): Promise<string | null> =>
+    ipcRenderer.invoke('library:export', { dirPath, defaultName }),
+  rename: (dirPath: string, newName: string): Promise<LibrarySummary> =>
+    ipcRenderer.invoke('library:rename', { dirPath, newName }),
+  delete: (dirPath: string): Promise<void> => ipcRenderer.invoke('library:delete', dirPath),
+  registryList: (forceRefresh?: boolean): Promise<import('../shared/cavity/registryTypes').OnlinePackageItem[]> =>
+    ipcRenderer.invoke('library:registry-list', forceRefresh),
+  registryInstall: (payload: { packageId: string; version: string }): Promise<LibrarySummary> =>
+    ipcRenderer.invoke('library:registry-install', payload),
+  onRegistryProgress: (listener: (event: import('../shared/cavity/registryTypes').InstallProgressEvent) => void) => {
+    const wrapped = (_e: unknown, data: import('../shared/cavity/registryTypes').InstallProgressEvent) => listener(data)
+    ipcRenderer.on('library:registry-progress', wrapped)
+    return () => {
+      ipcRenderer.removeListener('library:registry-progress', wrapped)
+    }
+  }
+} as const
+
+/**
+ * 设计工程管理（.sfb 读写与系统文件对话框）：与 src/main/ipc/projectIpc.ts 的 channel 一一对应。
+ */
+const projectApi = {
+  openDialog: (): Promise<{ filePath: string; doc: SfbProject; cacheBuffer?: ArrayBuffer | null; glbBuffer?: ArrayBuffer | null } | null> =>
+    ipcRenderer.invoke('project:open-dialog'),
+  saveDialog: (defaultName?: string): Promise<string | null> =>
+    ipcRenderer.invoke('project:save-dialog', defaultName),
+  saveStepDialog: (payload: { defaultName?: string; stepContent: string }): Promise<string | null> =>
+    ipcRenderer.invoke('project:save-step-dialog', payload),
+  read: (filePath: string): Promise<{ filePath: string; doc: SfbProject; cacheBuffer?: ArrayBuffer | null; glbBuffer?: ArrayBuffer | null }> =>
+    ipcRenderer.invoke('project:read', filePath),
+  readMeta: (filePath: string): Promise<import('../shared/design/types').SfbProjectMeta | null> =>
+    ipcRenderer.invoke('project:read-meta', filePath),
+  save: (payload: {
+    filePath: string
+    doc: SfbProject
+    cacheBuffer?: ArrayBuffer | Uint8Array | null
+    glbBuffer?: ArrayBuffer | Uint8Array | null
+    previewImageBase64?: string | null
+  }): Promise<string> =>
+    ipcRenderer.invoke('project:save', payload),
+  confirmClose: (projectName: string): Promise<'save' | 'dontsave' | 'cancel'> =>
+    ipcRenderer.invoke('project:confirm-close', projectName)
+} as const
+
+const fileApi = {
+  readBinary: (filePath: string): Promise<ArrayBuffer> =>
+    ipcRenderer.invoke('file:read-binary', filePath),
+  toSafeFileUrl: (filePath: string): string => {
+    const normalized = filePath.replace(/\\/g, '/')
+    return `sf-file://${normalized.startsWith('/') ? '' : '/'}${encodeURI(normalized)}`
+  }
+} as const
+
+const settingsApi = {
+  setLocale: (locale: 'zh-CN' | 'en-US'): Promise<void> => ipcRenderer.invoke('app:locale', locale),
+  associations: (): Promise<FileAssociationInfo> => ipcRenderer.invoke('associations:query'),
+  configureAssociation: (extension: AssociatedExtension): Promise<void> => ipcRenderer.invoke('associations:configure', extension),
+  drainFiles: (): Promise<string[]> => ipcRenderer.invoke('files:drain'),
+  onFilesPending: (callback: () => void): (() => void) => {
+    const listener = () => callback()
+    ipcRenderer.on('files:pending', listener)
+    return () => ipcRenderer.removeListener('files:pending', listener)
+  }
+}
+contextBridge.exposeInMainWorld('settingsApi', settingsApi)
+export type SettingsApi = typeof settingsApi
+
+contextBridge.exposeInMainWorld('api', api)
+contextBridge.exposeInMainWorld('windowControls', windowControls)
+contextBridge.exposeInMainWorld('libraryApi', libraryApi)
+contextBridge.exposeInMainWorld('projectApi', projectApi)
+contextBridge.exposeInMainWorld('fileApi', fileApi)
+
+export type Api = typeof api
+export type WindowControls = typeof windowControls
+export type LibraryApi = typeof libraryApi
+export type ProjectApi = typeof projectApi
+export type FileApi = typeof fileApi
+
+
+const updaterApi = {
+  openDownload: (): Promise<void> => ipcRenderer.invoke('updater:open-download'),
+  getState: (): Promise<UpdateState> => ipcRenderer.invoke('updater:get-state'),
+  check: (): Promise<UpdateState> => ipcRenderer.invoke('updater:check'),
+  install: (): Promise<boolean> => ipcRenderer.invoke('updater:install'),
+  onState: (callback: (state: UpdateState) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, state: UpdateState): void => callback(state)
+    ipcRenderer.on('updater:state', listener)
+    return () => ipcRenderer.removeListener('updater:state', listener)
+  }
+}
+contextBridge.exposeInMainWorld('updaterApi', updaterApi)
+export type UpdaterApi = typeof updaterApi

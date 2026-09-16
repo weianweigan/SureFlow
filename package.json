@@ -1,0 +1,174 @@
+{
+  "name": "sureflow",
+  "version": "0.0.1",
+  "description": "阀块设计软件 - 基于 Electron + React + React Three Fiber 的独立桌面应用",
+  "main": "./out/main/index.js",
+  "author": "SureFlow Team",
+  "license": "SEE LICENSE IN LICENSE",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "start": "electron-vite preview",
+    "sync:builtin": "node tools/fetch-builtin-library.cjs",
+    "prebuild": "npm run sync:builtin",
+    "build": "npm run typecheck && electron-vite build",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
+    "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "test": "vitest run --exclude **/csgUltraScale.test.ts --exclude **/csgPerformanceBenchmark.test.ts",
+    "test:watch": "vitest",
+    "postinstall": "install-electron",
+    "build:native": "node tools/native/build-helper.cjs",
+    "pack": "npm run build && npm run build:native && electron-builder --config electron-builder.config.cjs --dir",
+    "dist:mac": "npm run build && npm run build:native && electron-builder --config electron-builder.config.cjs --mac --arm64",
+    "dist:win": "npm run build && electron-builder --config electron-builder.config.cjs --win",
+    "test:performance": "vitest run --no-file-parallelism src/renderer/src/workspace/design/worker/csg/__tests__/csgUltraScale.test.ts src/renderer/src/workspace/design/worker/csg/__tests__/csgPerformanceBenchmark.test.ts"
+  },
+  "dependencies": {
+    "adm-zip": "^0.6.0",
+    "electron-updater": "^6.8.9"
+  },
+  "devDependencies": {
+    "@bitbybit-dev/occt": "^1.1.1",
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@radix-ui/react-popover": "^1.1.23",
+    "@radix-ui/react-separator": "^1.1.15",
+    "@radix-ui/react-slot": "^1.3.3",
+    "@react-three/drei": "^10.7.8",
+    "@react-three/fiber": "^9.7.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/adm-zip": "^0.5.8",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@types/three": "^0.185.4",
+    "@vitejs/plugin-react": "^5.2.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "dockview-react": "^8.1.0",
+    "electron": "^43.3.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "immer": "^11.1.18",
+    "konva": "^10.3.2",
+    "lucide-react": "^1.32.0",
+    "manifold-3d": "^3.5.3",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-konva": "^19.2.5",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss": "^4.3.3",
+    "three": "^0.185.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.6",
+    "vitest": "^5.0.0",
+    "zustand": "^5.0.15"
+  },
+  "build": {
+    "appId": "com.sureflow.app",
+    "productName": "SureFlow",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/main/**/*",
+      "out/preload/**/*",
+      "out/renderer/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/builtin-libraries",
+        "to": "builtin-libraries"
+      }
+    ],
+    "fileAssociations": [
+      {
+        "ext": "sfb",
+        "name": "SureFlow.Project",
+        "description": "SureFlow manifold project",
+        "role": "Editor",
+        "rank": "Owner"
+      },
+      {
+        "ext": "sfzip",
+        "name": "SureFlow.LibraryPackage",
+        "description": "SureFlow cavity library package",
+        "role": "Viewer",
+        "rank": "Owner"
+      }
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.productivity",
+      "extraResources": [
+        {
+          "from": "out/native/file-association",
+          "to": "native/file-association"
+        }
+      ],
+      "extendInfo": {
+        "UTExportedTypeDeclarations": [
+          {
+            "UTTypeIdentifier": "com.sureflow.sfb",
+            "UTTypeDescription": "SureFlow Project",
+            "UTTypeConformsTo": [
+              "public.data"
+            ],
+            "UTTypeTagSpecification": {
+              "public.filename-extension": [
+                "sfb"
+              ]
+            }
+          },
+          {
+            "UTTypeIdentifier": "com.sureflow.sfzip",
+            "UTTypeDescription": "SureFlow Library Package",
+            "UTTypeConformsTo": [
+              "public.zip-archive"
+            ],
+            "UTTypeTagSpecification": {
+              "public.filename-extension": [
+                "sfzip"
+              ]
+            }
+          }
+        ]
+      },
+      "hardenedRuntime": true,
+      "notarize": false
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true
+    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://sureflow-update.hy3d.space/"
+      }
+    ],
+    "artifactName": "SureFlow-${version}-${os}-${arch}.${ext}"
+  }
+}

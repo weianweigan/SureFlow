@@ -1,0 +1,318 @@
+/* ============================================================
+ * dockview 紧凑主题覆盖（PRD-FR-03-01 §6 紧凑 · shadcn 风格）
+ *
+ * 浅色主题：dockview CSS 变量映射到 shadcn token，
+ * 类覆盖实现紧凑尺寸（Tab 条 32px / Tab 28px / 字号 12px）。
+ * ============================================================ */
+
+.workspace-root {
+  /* ---- dockview → shadcn token 映射（浅色） ----
+   * 详细配色见 prd/PRD-FR-03-01-配色方案.md */
+  --dv-background-color: var(--background);
+  --dv-group-view-background-color: var(--background);
+  /* dockview 内部高度变量：未定义时 .dv-tabs-and-actions-container /
+   * .dv-scrollable 等高度计算会落到 auto，引起 1px 子元素溢出与滚动条 */
+  --dv-tabs-and-actions-container-height: 40px;
+  /* Tab 条（header）surface-soft 底 + 底部细分隔线（Design.md surface-soft） */
+  --dv-tabs-and-actions-container-background-color: var(--secondary, #E9E9E9);
+  /* Tab 本体底色：选中（visiblepanel）= 白色；未选中（hiddenpanel）= 透明
+   * （透出 Tab 条 surface-soft 底色，与 Tab 条同色）；dockview v8 由四个 group
+   * 状态变量控制（选中/未选中 × 活动/非活动组）；旧版 --dv-tab-background-color
+   * 与 --dv-active-tab-background-color 已不生效 */
+  --dv-activegroup-visiblepanel-tab-background-color: white;
+  --dv-activegroup-hiddenpanel-tab-background-color: transparent;
+  --dv-inactivegroup-visiblepanel-tab-background-color: transparent;
+  --dv-inactivegroup-hiddenpanel-tab-background-color: transparent;
+  --dv-tab-color: var(--muted-foreground);
+  --dv-active-tab-color: var(--accent-foreground);
+  --dv-tab-border-color: var(--border);
+  --dv-active-tab-border-color: var(--border);
+  --dv-tab-divider-color: transparent;
+  --dv-separator-border: var(--border);
+  --dv-resize-handler-background-color: transparent;
+  --dv-resize-handler-background-color-hover: var(--accent);
+  --dv-icon-hover-background-color: var(--accent);
+  --dv-tab-close-color: var(--muted-foreground);
+  --dv-tab-close-hover-color: var(--foreground);
+  --dv-tab-close-hover-background-color: var(--accent);
+  --dv-tab-scrollbar-color: var(--border);
+  /* 拖拽/落点指示：底色 hairline-soft，边框用黑（强调 = primary 表面） */
+  --dv-drag-over-background-color: var(--accent);
+  --dv-drag-over-border-color: var(--foreground);
+  --dv-floating-box-shadow: 0 4px 16px rgb(0 0 0 / 0.06);
+  --dv-drop-target-background-color: var(--accent);
+  --dv-drop-target-border-color: var(--foreground);
+  --dv-activegroup-hiddenpanel-tab-color: var(--muted-foreground);
+  --dv-activegroup-visiblepanel-tab-color: var(--foreground);
+  /* 分割条（sash）：4px 热区，浅色可见，hover 即时高亮（黑 = primary 表面） */
+  --dv-sash-color: var(--border);
+  --dv-active-sash-color: var(--foreground);
+  --dv-active-sash-transition-delay: 0s;
+  /* 非活动组 Tab 条：黑色文字（强调 = primary 表面） */
+  --dv-inactivegroup-hiddenpanel-tab-color: black;
+}
+
+/* ---- 紧凑尺寸（Tab 条 32px / Tab 28px / 字号 12px） ---- */
+.workspace-root .dv-tabs-and-actions-container {
+  height: 40px;
+  /* padding-right 为右上角窗口控制区（5×40px）让位；主内容（.dv-view）仍占满全宽 */
+  padding-right: 200px;
+  /* 用 inset box-shadow 画 1px 分割线，不占盒模型高度（避免与 40px Tab 产生 1px 溢出） */
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+/* 「+」紧跟最后一个 Tab：消除 void 空白区的 flex-grow 撑开 */
+.workspace-root .dv-tabs-and-actions-container .dv-void-container {
+  flex-grow: 0;
+}
+
+.workspace-root .dv-right-actions-container {
+  margin-left: 4px;
+}
+
+.workspace-root .dv-tabstrip-container {
+  height: 40px;
+}
+
+/* 隐藏 dockview 自带的 1px 伪元素分割线，避免与 Tab 自身边框叠加 */
+.workspace-root .dv-tabs-container .dv-tab::before {
+  display: none;
+}
+
+.workspace-root .dv-tab {
+  position: relative;
+  height: 40px;
+  padding: 0 10px;
+  gap: 6px;
+  font-size: 12px;
+  border-radius: 0px;
+  /* 全边框 1px：未选中 Tab 在 Tab 条上呈描边方块；选中 Tab 底边透明与白色主内容连通 */
+  border: 1px solid var(--border);
+}
+
+/* 相邻 Tab 边框重叠 1px（折叠）：消除两个 Tab 之间的双倍 2px 边框 */
+.workspace-root .dv-tab + .dv-tab {
+  margin-left: -1px;
+}
+
+/* 悬停 Tab 提高层级，避免悬停边框被相邻 Tab 压住 */
+.workspace-root .dv-tab:hover {
+  z-index: 1;
+}
+
+/* 选中 Tab：白底（变量控制）+ 底边透明，视觉上与下方白色内容区连成一体；层级最高以完整覆盖相邻边框 */
+.workspace-root .dv-tab.dv-active-tab {
+  z-index: 2;
+  border-bottom-color: transparent;
+  color: var(--foreground);
+}
+
+/* 标题单行省略 */
+.workspace-root .dv-tab .dv-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 关闭按钮：hover 显示（未保存圆点钩子见 .dv-tab--dirty，M2 自定义 tab 使用） */
+.workspace-root .dv-tab .dv-tab-close-btn {
+  opacity: 0;
+  border-radius: 4px;
+}
+
+.workspace-root .dv-tab:hover .dv-tab-close-btn,
+.workspace-root .dv-tab.dv-active-tab .dv-tab-close-btn {
+  opacity: 1;
+}
+
+.workspace-root .dv-tab-close-btn:hover {
+  background: var(--accent);
+}
+
+/* ---- 自定义 Tab header（tabHeaders.tsx） ----
+ * icon-home：仅 Home.svg 图标（无文字、无关闭按钮）
+ * 边框与底色都由外层 .dv-tab 控制（未选中透明 / 选中白色），内层不重复设置 */
+
+.workspace-root .dv-tab .sf-tab {
+  padding: 0;
+  gap: 0;
+}
+
+.workspace-root .dv-tab .sf-tab--icon {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 100%;
+}
+
+.workspace-root .dv-tab .sf-tab--icon .dv-default-tab {
+  width: auto;
+}
+
+.workspace-root .dv-tab .sf-tab--icon .dv-default-tab-content {
+  display: none;
+}
+
+.workspace-root .sf-tab__icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+/* 自定义 Tab 激活态：图标染色跟随主题前景色 */
+.workspace-root .dv-tab.dv-active-tab .sf-tab__icon {
+  filter: none;
+}
+
+/* Home Tab 激活态：背景与 Tab 条底色一致（surface-soft），底边透明，与主页顶部过渡连通 */
+.workspace-root .dv-tab:has(.sf-tab--icon).dv-active-tab {
+  background-color: var(--sf-surface-soft);
+  border-bottom-color: transparent;
+}
+
+/* 分组边框与面板背景 */
+.workspace-root .dv-group-view {
+  border-radius: 0;
+}
+
+/* 分割条尺寸：垂直分割（左右窗格）宽 4px；水平分割（上下窗格）高 4px */
+.workspace-root .dv-split-view-container.dv-horizontal>.dv-sash-container>.dv-sash {
+  width: 4px;
+}
+
+.workspace-root .dv-split-view-container.dv-vertical>.dv-sash-container>.dv-sash {
+  height: 4px;
+}
+
+.workspace-root .dv-resize-handle:hover {
+  background: var(--accent);
+}
+
+/* 紧凑滚动条（Tab 溢出下拉列表） */
+.workspace-root .dv-tabstrip ::-webkit-scrollbar {
+  height: 4px;
+}
+
+.workspace-root .dv-tabstrip ::-webkit-scrollbar-thumb {
+  border-radius: 2px;
+  background: var(--border);
+}
+
+/* ============================================================
+ * 无边框窗口：Tab 条与窗口控制按钮同行（PRD-FR-03-01 §6）
+ * ============================================================ */
+
+.sf-window-bar {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  background: var(--secondary, #E9E9E9);
+  overflow: hidden;
+}
+
+.sf-window-bar .workspace-root {
+  flex: 1;
+  min-width: 0;
+  /* 主内容占满全宽：窗口控制区只在 Tab 条行上叠加，dockview 不再右侧避让
+   * （避免触发 .dv-view 水平滚动条，导致主内容被截断 120px） */
+}
+
+/* 窗口拖拽：Tab 条行（含空白区）可拖拽移动窗口 */
+.sf-window-bar .dv-tabs-and-actions-container,
+.sf-window-controls {
+  -webkit-app-region: drag;
+  background-color: var(--sf-surface-soft);
+}
+
+/* 交互元素排除拖拽（Tab 本体、+ 按钮、窗口控制按钮） */
+.sf-window-bar .dv-tab,
+.sf-window-bar .dv-tab *,
+.sf-window-bar .dv-right-actions-container,
+.sf-window-controls__btn,
+.sf-window-controls__preview-tag {
+  -webkit-app-region: no-drag;
+}
+
+/* 窗口控制按钮区：绝对定位固定在右上角，与 Tab 条同行；
+ * z-index 高于 dockview 常规内容，避免被 dockview 渲染层遮挡。
+ * 高度 40px（与 Tab 条一致），底部 1px 分割线用 inset box-shadow（不占盒高） */
+.sf-window-controls {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  height: 40px;
+  flex-shrink: 0;
+  z-index: 1000;
+  background: var(--sf-surface-soft);
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+/* 预览版本标记（Design.md taxonomy 规范：mono + 大写 + 正 tracking） */
+.sf-window-controls__preview-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--sf-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2.5px 7px;
+  border-radius: 9999px;
+  background: var(--sf-canvas);
+  color: var(--muted-foreground);
+  border: 1px solid var(--border);
+  user-select: none;
+  cursor: default;
+  margin-left: 8px;
+  margin-right: 4px;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.sf-window-controls__preview-tag:hover {
+  color: var(--foreground);
+  border-color: var(--sf-ink);
+}
+
+/* 窗口控制区域分割线：分隔“最小化/最大化/关闭”与左侧设置及状态区 */
+.sf-window-controls__divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+.sf-window-controls__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.sf-window-controls__btn:hover {
+  background: var(--accent);
+  color: var(--foreground);
+}
+
+.sf-window-controls__btn--close:hover {
+  background: var(--destructive);
+  color: var(--destructive-foreground);
+}
