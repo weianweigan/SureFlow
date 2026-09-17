@@ -1,6 +1,6 @@
 {
   "name": "sureflow",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "阀块设计软件 - 基于 Electron + React + React Three Fiber 的独立桌面应用",
   "main": "./out/main/index.js",
   "author": "SureFlow Team",
