@@ -9,6 +9,7 @@ import { useWorkspaceStore } from '@renderer/workspace/layout/layoutStore'
 import { useDesignStore } from '@renderer/workspace/design/model/designStore'
 import type { IDockviewPanelProps } from 'dockview-react'
 import type { TabParams } from '@renderer/workspace/registry/tabTypeRegistry'
+import posthog from '@renderer/lib/posthog'
 
 /** GitHub logo（lucide 不含品牌图标） */
 function GithubIcon({ className }: { className?: string }) {
@@ -136,7 +137,10 @@ export default function HomeTabPanel(_props: IDockviewPanelProps<TabParams>) {
             <div className="flex w-full max-w-[200px] flex-col gap-2.5 pt-1">
               <button
                 className="inline-flex h-9 items-center justify-center gap-2 rounded-full bg-primary px-6 text-xs font-semibold text-primary-foreground shadow-sm transition-all hover:bg-primary/85 active:scale-[0.98]"
-                onClick={() => openDesignTab()}
+                onClick={() => {
+                  openDesignTab()
+                  posthog.capture('design_created', { entry_point: 'home' })
+                }}
               >
                 <Plus className="size-4" /> {_t("新建设计")}</button>
               <button

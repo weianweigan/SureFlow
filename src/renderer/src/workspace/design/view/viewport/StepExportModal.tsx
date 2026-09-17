@@ -26,6 +26,7 @@ import { cadBridge } from '../../worker/cad/cadWorkerBridge'
 import { getBoxFaceBasis, getCavityWorldMatrix } from '@shared/design/faceMath'
 import { getCavitySteps } from '../../geometry/cavityProfileBuilder'
 import { cn } from '@renderer/lib/utils'
+import posthog from '@renderer/lib/posthog'
 
 interface StepExportModalProps {
   projectId: string
@@ -154,6 +155,11 @@ export const StepExportModal: FC<StepExportModalProps> = ({ projectId, isOpen, o
       setProgress(100)
       setStage('全部 STEP 实体文件导出并保存成功！')
       setSuccessInfo('STEP 实体文件已成功落盘，可在制造与 CAD 软件中直接使用。')
+      posthog.capture('step_export_completed', {
+        scheme_count: schemesToExport.length,
+        protocol,
+        color_ports: colorPorts
+      })
     } catch (err: any) {
       console.error('[StepExportModal] 导出失败:', err)
       setError(err?.message || _t("导出 STEP 实体模型过程中发生错误"))

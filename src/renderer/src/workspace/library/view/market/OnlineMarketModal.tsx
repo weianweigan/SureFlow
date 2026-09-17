@@ -21,6 +21,7 @@ import type {
 } from '@shared/cavity/registryTypes'
 import { t as _t } from '@shared/i18n'
 import { useLocale } from '@renderer/i18n/useLocale'
+import posthog from '@renderer/lib/posthog'
 
 interface OnlineMarketModalProps {
   open: boolean
@@ -75,6 +76,7 @@ export function OnlineMarketModal({ open, onClose }: OnlineMarketModalProps) {
             return next
           })
           if (evt.step === 'completed') {
+            posthog.capture('library_package_installed')
             loadPackages(true)
             // 刷新主面板左侧库列表
             useLibraryStore.getState().init()

@@ -9,6 +9,7 @@ import {
   Check
 } from 'lucide-react'
 import { useDesignStore, getSelectedCavityIds } from '../../model/designStore'
+import posthog from '@renderer/lib/posthog'
 
 interface MirrorWizardModalProps {
   projectId: string
@@ -58,6 +59,11 @@ export const MirrorWizardModal: FC<MirrorWizardModalProps> = ({
   const handleConfirm = () => {
     if (selectedCavityIds.length === 0) return
     applyMirror(projectId, selectedCavityIds, axis, isCopy)
+    posthog.capture('mirror_applied', {
+      axis,
+      copied: isCopy,
+      source_cavity_count: selectedCavityIds.length
+    })
     onClose()
   }
 

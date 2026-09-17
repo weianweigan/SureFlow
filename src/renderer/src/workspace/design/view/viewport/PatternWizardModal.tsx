@@ -9,6 +9,7 @@ import {
   Check
 } from 'lucide-react'
 import { useDesignStore, getSelectedCavityIds } from '../../model/designStore'
+import posthog from '@renderer/lib/posthog'
 
 interface PatternWizardModalProps {
   projectId: string
@@ -111,6 +112,11 @@ export const PatternWizardModal: FC<PatternWizardModalProps> = ({
       })
     }
 
+    posthog.capture('pattern_generated', {
+      pattern_type: activeTab,
+      source_cavity_count: selectedCavityIds.length,
+      generated_cavity_count: generatedCount
+    })
     onClose()
   }
 

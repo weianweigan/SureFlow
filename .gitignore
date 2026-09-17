@@ -19,6 +19,7 @@ libraries/
 # AI
 .workbuddy-ai
 .workbuddy
+.claude
 
 #docs
 docs/
@@ -27,4 +28,5 @@ prd/
 # env
 .env
 .env.*
+!.env.example
 *.local

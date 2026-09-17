@@ -10,6 +10,7 @@ import { useWorkspaceStore } from '@renderer/workspace/layout/layoutStore'
 import { useRecentFilesStore } from './recentFilesStore'
 import { useDesignStore } from '@renderer/workspace/design/model/designStore'
 import type { SfbProject } from '@shared/design/types'
+import posthog from '@renderer/lib/posthog'
 
 /** 打开单开常驻面板（home / library）；不存在则创建并追加到顶层 group */
 export function openPanelByType(type: 'home' | 'library' | 'settings'): void {
@@ -194,4 +195,5 @@ export async function openProjectDialog(): Promise<void> {
     initialCacheBuffer: cacheBuffer,
     initialGlbBuffer: glbBuffer
   })
+  posthog.capture('project_opened', { entry_point: 'file_dialog' })
 }
