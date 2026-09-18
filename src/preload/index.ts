@@ -118,6 +118,11 @@ const settingsApi = {
     const listener = () => callback()
     ipcRenderer.on('files:pending', listener)
     return () => ipcRenderer.removeListener('files:pending', listener)
+  },
+  onNavigateHome: (callback: () => void): (() => void) => {
+    const listener = () => callback()
+    ipcRenderer.on('workspace:navigate-home', listener)
+    return () => ipcRenderer.removeListener('workspace:navigate-home', listener)
   }
 }
 contextBridge.exposeInMainWorld('settingsApi', settingsApi)

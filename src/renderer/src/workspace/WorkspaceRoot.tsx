@@ -114,6 +114,9 @@ export function WorkspaceRoot(): React.ReactElement {
   useEffect(() => window.settingsApi?.onFilesPending(() => {
     if (useWorkspaceStore.getState().api) void consumeSystemFiles().catch(console.error)
   }), [])
+  useEffect(() => window.settingsApi?.onNavigateHome?.(() => {
+    openPanelByType('home')
+  }), [])
   const onReady = useCallback((event: DockviewReadyEvent) => {
     const api = event.api
     useWorkspaceStore.getState().setApi(api)

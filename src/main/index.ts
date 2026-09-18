@@ -1,4 +1,5 @@
 import { initAutoUpdater } from './updater'
+import { initTray, destroyTray } from './tray'
 import { app, BrowserWindow, shell, ipcMain, protocol, net, nativeImage, Menu, session } from 'electron'
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
@@ -13,6 +14,7 @@ import { setLocale, t } from '../shared/i18n'
 
 const fileQueue = new FileOpenQueue()
 let mainWindow: BrowserWindow | null = null
+let isQuitting = false
 const hasLock = app.requestSingleInstanceLock()
 if (!hasLock) app.quit()
 else fileQueue.enqueue(process.argv.slice(app.isPackaged ? 1 : 2), process.cwd())
@@ -98,6 +100,14 @@ function createWindow(): void {
 
   mainWindow = window
   window.on('closed', () => { if (mainWindow === window) mainWindow = null })
+
+  // 系统托盘：Windows 关闭窗口 → 隐藏到托盘（PRD-FR-06-02）
+  window.on('close', (event) => {
+    if (!isQuitting && process.platform === 'win32') {
+      event.preventDefault()
+      window.hide()
+    }
+  })
 
   // 最大化状态变化通知渲染层（切换 最大化/还原 图标）
   window.on('maximize', () => {
@@ -200,15 +210,90 @@ app.whenReady().then(() => {
   createWindow()
   initAutoUpdater()
 
+  // 系统托盘初始化（PRD-FR-06）
+  initTray({
+    onShowWindow: () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isMinimized()) mainWindow.restore()
+        mainWindow.show()
+        mainWindow.focus()
+      } else {
+        createWindow()
+      }
+    },
+    onGoHome: () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isMinimized()) mainWindow.restore()
+        mainWindow.show()
+        mainWindow.focus()
+        mainWindow.webContents.send('workspace:navigate-home')
+      } else {
+        createWindow()
+      }
+    },
+    getRecentProjects: async () => {
+      // 从渲染进程的 localStorage 读取最近工程列表
+      if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.webContents) return []
+      try {
+        const raw = await mainWindow.webContents.executeJavaScript(
+          `localStorage.getItem('sureflow:recent-files') || '[]'`
+        )
+        const parsed = JSON.parse(raw)
+        if (!Array.isArray(parsed)) return []
+        return parsed
+          .filter((e: unknown) =>
+            typeof e === 'object' && e !== null &&
+            typeof (e as { filePath: string }).filePath === 'string' &&
+            typeof (e as { name: string }).name === 'string'
+          )
+          .map((e: { name: string; filePath: string }) => ({ name: e.name, filePath: e.filePath }))
+      } catch {
+        return []
+      }
+    },
+    onOpenProject: (filePath: string) => {
+      // 显示窗口并通过文件队列打开工程
+      fileQueue.enqueue([filePath], process.cwd())
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isMinimized()) mainWindow.restore()
+        mainWindow.show()
+        mainWindow.focus()
+        mainWindow.webContents.send('files:pending')
+      } else {
+        createWindow()
+      }
+    },
+    onCheckUpdate: () => {
+      // 触发手动更新检查（通过现有 IPC 通道机制）
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.show()
+        mainWindow.focus()
+      }
+    },
+    onQuit: () => {
+      isQuitting = true
+      app.quit()
+    }
+  })
+
+  // 真正退出前设置标记、销毁托盘
+  app.on('before-quit', () => {
+    isQuitting = true
+    destroyTray()
+  })
+
   app.on('activate', () => {
-    // macOS：点击 Dock 图标且无窗口时重建窗口
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    // macOS：点击 Dock 图标时恢复或重建窗口
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      createWindow()
+    } else {
+      mainWindow.show()
+      mainWindow.focus()
+    }
   })
 })
 
 app.on('window-all-closed', () => {
-  // macOS 惯例：关闭所有窗口后应用保持运行
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
+  // 系统托盘驻留：两平台关闭所有窗口后均不退出（PRD-FR-06-02）
+  // 用户通过托盘菜单「退出 SureFlow」或 macOS Cmd+Q 完全退出
 })

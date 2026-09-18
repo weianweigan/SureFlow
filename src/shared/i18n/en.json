@@ -1085,6 +1085,11 @@
   "SureFlow 依赖并受益于优秀的开源生态。以下列出构建本软件所采用的核心第三方开源库及授权协议。各库原作者保留其相应著作权：": "SureFlow benefits from the open-source ecosystem. Below are the key third-party libraries used; respective authors retain their copyrights:",
   "交流讨论": "Discussions",
   "软件许可": "Software License",
-  "许可协议文本 (LICENSE)": "License Text (LICENSE)"
+  "许可协议文本 (LICENSE)": "License Text (LICENSE)",
+  "显示 SureFlow": "Show SureFlow",
+  "打开最近工程": "Open Recent",
+  "无最近工程": "No Recent Projects",
+  "检查更新": "Check for Updates",
+  "退出 SureFlow": "Quit SureFlow"
 }
 
