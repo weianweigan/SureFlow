@@ -34,7 +34,7 @@ export const ImageViewer: FC<ImageViewerProps> = ({ target, libraryDirPath }) =>
 
   const safeImageUrl = useMemo(() => {
     let raw = target.trim()
-    if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('data:')) {
+    if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('data:') || raw.startsWith('sf-file://')) {
       return raw
     }
 

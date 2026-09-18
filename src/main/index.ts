@@ -11,6 +11,7 @@ import { FileOpenQueue } from './services/fileOpenQueue'
 import { queryFileAssociations, configureFileAssociation } from './services/fileAssociationService'
 import type { AssociatedExtension } from '../shared/settings/fileAssociations'
 import { setLocale, t } from '../shared/i18n'
+import { resolveSfFilePath } from './services/safeFileProtocol'
 
 const fileQueue = new FileOpenQueue()
 let mainWindow: BrowserWindow | null = null
@@ -121,9 +122,20 @@ function createWindow(): void {
     window.show()
   })
 
-  // 外部链接一律交给系统浏览器打开，不在应用内导航
+  // 外部链接一律交给系统浏览器或默认程序打开，不在应用内导航
   window.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    if (details.url.startsWith('sf-file:')) {
+      try {
+        const filePath = resolveSfFilePath(details.url)
+        shell.openPath(filePath).catch(() => {})
+      } catch {
+        // ignore
+      }
+      return { action: 'deny' }
+    }
+    if (details.url.startsWith('https://') || details.url.startsWith('http://') || details.url.startsWith('mailto:')) {
+      shell.openExternal(details.url).catch(() => {})
+    }
     return { action: 'deny' }
   })
 
@@ -171,21 +183,33 @@ app.whenReady().then(() => {
   ipcMain.on('window:close', (e) => BrowserWindow.fromWebContents(e.sender)?.close())
   ipcMain.on('window:toggle-devtools', (e) => BrowserWindow.fromWebContents(e.sender)?.webContents.toggleDevTools())
   ipcMain.handle('window:is-maximized', (e) => BrowserWindow.fromWebContents(e.sender)?.isMaximized() ?? false)
+
   ipcMain.handle('app:open-external', async (_e, targetUrl: string) => {
-    if (typeof targetUrl === 'string' && (targetUrl.startsWith('https://') || targetUrl.startsWith('http://'))) {
+    if (typeof targetUrl !== 'string') return
+    if (targetUrl.startsWith('sf-file:')) {
+      try {
+        const filePath = resolveSfFilePath(targetUrl)
+        await shell.openPath(filePath)
+      } catch {
+        // ignore
+      }
+    } else if (targetUrl.startsWith('https://') || targetUrl.startsWith('http://') || targetUrl.startsWith('mailto:')) {
       await shell.openExternal(targetUrl)
+    } else {
+      await shell.openPath(targetUrl)
     }
   })
   // 本地安全协议：支持通过 sf-file:// 绝对路径访问本地文档与 3D 模型
-  protocol.handle('sf-file', (request) => {
+  protocol.handle('sf-file', async (request) => {
     try {
-      const url = new URL(request.url)
-      let filePath = decodeURIComponent(url.pathname)
-      if (process.platform === 'win32' && /^\/[a-zA-Z]:/.test(filePath)) {
-        filePath = filePath.slice(1)
+      const filePath = resolveSfFilePath(request.url)
+      if (!existsSync(filePath)) {
+        console.warn(`[sf-file] File not found: ${filePath} (from ${request.url})`)
+        return new Response('File Not Found', { status: 404 })
       }
-      return net.fetch(pathToFileURL(filePath).toString())
-    } catch {
+      return await net.fetch(pathToFileURL(filePath).toString())
+    } catch (err) {
+      console.error(`[sf-file] Error loading ${request.url}:`, err)
       return new Response('File Not Found', { status: 404 })
     }
   })

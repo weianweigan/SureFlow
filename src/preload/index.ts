@@ -104,8 +104,10 @@ const fileApi = {
   readBinary: (filePath: string): Promise<ArrayBuffer> =>
     ipcRenderer.invoke('file:read-binary', filePath),
   toSafeFileUrl: (filePath: string): string => {
+    if (filePath.startsWith('sf-file://')) return filePath
     const normalized = filePath.replace(/\\/g, '/')
-    return `sf-file://${normalized.startsWith('/') ? '' : '/'}${encodeURI(normalized)}`
+    const encoded = encodeURI(normalized).replace(/#/g, '%23').replace(/\?/g, '%3F')
+    return `sf-file://local${encoded.startsWith('/') ? '' : '/'}${encoded}`
   }
 } as const
 

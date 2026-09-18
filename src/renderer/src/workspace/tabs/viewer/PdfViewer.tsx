@@ -5,8 +5,7 @@ import { t as _t } from '@shared/i18n'
  * 基于 react-pdf-viewer，支持页面范围同步与外部打开
  */
 import { FC, useMemo, useState, useEffect } from 'react'
-import { FileText, ExternalLink, BookOpen } from 'lucide-react'
-import { Button } from '@renderer/components/ui/button'
+import { FileText, BookOpen } from 'lucide-react'
 import { PDFViewer } from '@embedpdf/react-pdf-viewer'
 import { useLibraryStore } from '../../library/viewmodel/libraryStore'
 import { UpdateCmd } from '../../library/viewmodel/commands'
@@ -93,8 +92,8 @@ export const PdfViewer: FC<PdfViewerProps> = ({
 
     const processPdf = async () => {
       let raw = target.trim()
-      // For URL
-      if (raw.startsWith('http://') || raw.startsWith('https://')) {
+      // For URL or existing sf-file protocol
+      if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('sf-file://')) {
         raw = raw.split('#')[0]
       } else {
         // For local file
@@ -160,10 +159,6 @@ export const PdfViewer: FC<PdfViewerProps> = ({
   }, [target, libraryDirPath, viewMode, localStart, localEnd])
 
   const safePdfUrl = processedPdfUrl
-
-  const handleOpenExternal = () => {
-    window.open(safePdfUrl, '_blank')
-  }
 
   const syncToLibrary = (field: 'pageStart' | 'pageEnd', value: number | null) => {
     if (referenceIndex != null && referenceBasePath) {
@@ -236,18 +231,6 @@ export const PdfViewer: FC<PdfViewerProps> = ({
               {_t("推荐范围：第")}{pageStart || 1} {pageEnd ? `~ ${pageEnd}` : ''} {_t("页")}
             </span>
           )}
-        </div>
-
-        <div className="flex items-center gap-1">
-          <Button
-            size="icon-sm"
-            className="size-6"
-            variant="ghost"
-            title={_t("系统浏览器中打开")}
-            onClick={handleOpenExternal}
-          >
-            <ExternalLink className="size-3.5" />
-          </Button>
         </div>
       </div>
 
