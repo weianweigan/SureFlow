@@ -36,6 +36,9 @@ export function makeCavitySurfaceMaterial(cavity:CavityInstance,dimensions:Vec3,
     metalness:selected?0.4:0.2,
     roughness:selected?0.15:0.55,
     side:THREE.DoubleSide,
+    polygonOffset:true,
+    polygonOffsetFactor:0.5,
+    polygonOffsetUnits:0.5,
     clippingPlanes
   })
   const {mouth,direction}=cavityAxis(cavity,dimensions)
