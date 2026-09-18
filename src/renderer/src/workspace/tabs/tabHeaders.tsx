@@ -14,6 +14,8 @@ import { Library, Globe, FileText, Image as ImageIcon, Box } from 'lucide-react'
 import type { TabParams } from '../registry/tabTypeRegistry'
 import { useDesignStore } from '@renderer/workspace/design/model/designStore'
 import { Popover, PopoverAnchor, PopoverContent } from '@renderer/components/ui/popover'
+import { TabContextMenu } from './menu/TabContextMenu'
+import { requestClosePanel } from '../registry/panelActions'
 
 /**
  * Home Tab header：Home.svg 图标（BASE_URL 兼容 dev/build 的 public 资源路径）。
@@ -37,10 +39,12 @@ export function HomeIconTab(props: IDockviewPanelHeaderProps): React.ReactElemen
 export function LockedTab(props: IDockviewPanelHeaderProps): React.ReactElement {
   _useLocale()
   return (
-    <div className="flex h-full items-center gap-1.5 overflow-hidden">
-      <Library className="size-3.5 shrink-0 text-muted-foreground" />
-      <DockviewDefaultTab {...props} hideClose />
-    </div>
+    <TabContextMenu panel={props.api} containerApi={props.containerApi} params={props.params as TabParams}>
+      <div className="flex h-full items-center gap-1.5 overflow-hidden">
+        <Library className="size-3.5 shrink-0 text-muted-foreground" />
+        <DockviewDefaultTab {...props} hideClose />
+      </div>
+    </TabContextMenu>
   )
 }
 
@@ -81,20 +85,37 @@ export function DesignTabHeader(props: IDockviewPanelHeaderProps): React.ReactEl
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverAnchor asChild>
-        <div 
-          className="flex h-full items-center gap-1.5 overflow-hidden w-full"
-          onMouseEnter={handleMouseEnter}
-          onMouseLeave={handleMouseLeave}
+      <PopoverAnchor className="flex h-full items-center overflow-hidden w-full">
+        <TabContextMenu
+          panel={props.api}
+          containerApi={props.containerApi}
+          params={props.params as TabParams}
+          onOpenChange={(menuOpen) => {
+            if (menuOpen) {
+              if (timerRef.current) clearTimeout(timerRef.current)
+              setOpen(false)
+            }
+          }}
         >
-          <img
-            src={`${import.meta.env.BASE_URL}Block.svg`}
-            className="size-3.5 shrink-0"
-            alt={_t("设计工程")}
-            draggable={false}
-          />
-          <DockviewDefaultTab {...props} />
-        </div>
+          <div 
+            className="flex h-full items-center gap-1.5 overflow-hidden w-full"
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+          >
+            <img
+              src={`${import.meta.env.BASE_URL}Block.svg`}
+              className="size-3.5 shrink-0"
+              alt={_t("设计工程")}
+              draggable={false}
+            />
+            <DockviewDefaultTab
+              {...props}
+              closeActionOverride={() => {
+                void requestClosePanel(props.api.id)
+              }}
+            />
+          </div>
+        </TabContextMenu>
       </PopoverAnchor>
       {projectId && (
         <PopoverContent 
@@ -143,10 +164,21 @@ export function ViewerTabHeader(props: IDockviewPanelHeaderProps): React.ReactEl
   }
 
   return (
-    <div className="flex h-full items-center gap-1.5 overflow-hidden">
-      {icon}
-      <DockviewDefaultTab {...props} />
-    </div>
+    <TabContextMenu
+      panel={props.api}
+      containerApi={props.containerApi}
+      params={props.params as TabParams}
+    >
+      <div className="flex h-full items-center gap-1.5 overflow-hidden">
+        {icon}
+        <DockviewDefaultTab
+          {...props}
+          closeActionOverride={() => {
+            void requestClosePanel(props.api.id)
+          }}
+        />
+      </div>
+    </TabContextMenu>
   )
 }
 

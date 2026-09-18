@@ -16,7 +16,8 @@ const api = {
     chrome: process.versions.chrome,
     node: process.versions.node
   },
-  openExternal: (url: string): Promise<void> => ipcRenderer.invoke('app:open-external', url)
+  openExternal: (url: string): Promise<void> => ipcRenderer.invoke('app:open-external', url),
+  showItemInFolder: (fullPath: string): Promise<boolean> => ipcRenderer.invoke('shell:show-item-in-folder', fullPath)
 } as const
 
 /**

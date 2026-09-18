@@ -164,7 +164,6 @@ export interface DesignProjectSession {
   undoStack: SfbProject[]
   redoStack: SfbProject[]
   sectionConfig?: SectionConfig
-  xrayMode?: boolean
   isolatedChannelId?: string | null
   initialCacheBuffer?: ArrayBuffer | null
   initialGlbBuffer?: ArrayBuffer | null
@@ -314,10 +313,9 @@ export interface DesignState {
   undo: (projectId: string) => void
   redo: (projectId: string) => void
 
-  /** 剖切与 X-Ray 透视模式 */
+  /** 剖切模式 */
   setSectionConfig: (projectId: string, config: Partial<SectionConfig>) => void
   toggleSection: (projectId: string) => void
-  toggleXRay: (projectId: string) => void
 
   /** 通道管理 */
   setChannelColor: (projectId: string, bindingKey: string, color: string) => void
@@ -1725,16 +1723,6 @@ export const useDesignStore = create<DesignState>((set, get) => ({
         } else {
           p.sectionConfig.enabled = !p.sectionConfig.enabled
         }
-      })
-    )
-  },
-
-  toggleXRay: (projectId) => {
-    set(
-      produce((state: DesignState) => {
-        const p = state.projects[projectId]
-        if (!p) return
-        p.xrayMode = !p.xrayMode
       })
     )
   },

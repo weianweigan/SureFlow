@@ -216,3 +216,68 @@ export async function openProjectDialog(): Promise<void> {
   })
   posthog.capture('project_opened', { entry_point: 'file_dialog' })
 }
+
+/**
+ * 请求关闭指定面板（FR-03-106 / FR-03-107）。
+ * 若为设计工程面板且存在未保存改动（dirty），弹出保存确认对话框。
+ * 返回 boolean：true 表示面板已成功关闭；false 表示用户取消关闭。
+ */
+export async function requestClosePanel(panelId: string): Promise<boolean> {
+  const api = useWorkspaceStore.getState().api
+  if (!api) return false
+  const panel = api.getPanel(panelId)
+  if (!panel) return true
+
+  // 常驻系统 Tab 不允许关闭
+  if (panelId === 'home' || panelId === 'library') {
+    return false
+  }
+
+  // 检查设计工程未保存改动
+  if (panelId.startsWith('design:')) {
+    const projectId = panelId.replace(/^design:/, '')
+    const session = useDesignStore.getState().projects[projectId]
+    if (session && session.dirty) {
+      const projectName =
+        session.doc.meta.projectName ||
+        session.filePath?.split(/[\\/]/).pop()?.replace(/\.sfb$/i, '') ||
+        '未命名工程'
+      const choice = await window.projectApi.confirmClose(projectName)
+      if (choice === 'cancel') {
+        return false
+      }
+      if (choice === 'save') {
+        const saved = await useDesignStore.getState().saveProject(projectId)
+        if (!saved) {
+          return false
+        }
+      }
+      // choice === 'dontsave' 或成功保存，继续关闭
+    }
+  }
+
+  api.removePanel(panel)
+  return true
+}
+
+/**
+ * 批量关闭除 targetPanelId 以外的所有可关闭面板（FR-03-119 / FR-03-120）。
+ * 保护系统常驻面板（home、library）；遇脏工程弹窗确认，若用户取消则中止后续关闭。
+ */
+export async function closeOtherPanels(targetPanelId: string): Promise<boolean> {
+  const api = useWorkspaceStore.getState().api
+  if (!api) return false
+
+  const candidates = api.panels.filter(
+    (p) => p.id !== targetPanelId && p.id !== 'home' && p.id !== 'library'
+  )
+
+  for (const p of candidates) {
+    const closed = await requestClosePanel(p.id)
+    if (!closed) {
+      return false
+    }
+  }
+  return true
+}
+

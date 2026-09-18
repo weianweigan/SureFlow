@@ -29,7 +29,6 @@ interface CsgValveBlockMeshProps {
   selectedFaceId?: string | null
   materialConfig: MaterialConfig
   clippingPlanes?: THREE.Plane[]
-  isXRay?: boolean
   isDarkBackground?: boolean
   dimensions?: [number, number, number]
   onClick: (hits: MeshRayHit[], rawEvent?: ThreeEvent<MouseEvent>) => void
@@ -40,8 +39,7 @@ interface CsgValveBlockMeshProps {
  * SolidWorks 风格边线着色实体（Shaded with Edges）
  * 严格对齐 PRD-FR-04-06 规范：
  * 1. 剖切功能 (Sectioning)：WebGL Stencil 多通道渲染 100% 实体封口截面 (#475569)；
- * 2. X-Ray 视图：基体外壳磨砂半透 (opacity: 0.18, roughness: 0.8)；
- * 3. 剖切状态下射线拾取精确捕获内部相交面元。
+ * 2. 剖切状态下射线拾取精确捕获内部相交面元。
  */
 export const CsgValveBlockMesh: FC<CsgValveBlockMeshProps> = ({
   projectId, triangleTags, selectedCavityIds = [],
@@ -52,7 +50,6 @@ export const CsgValveBlockMesh: FC<CsgValveBlockMeshProps> = ({
   selectedFaceId: _selectedFaceId,
   materialConfig,
   clippingPlanes,
-  isXRay = false,
   isDarkBackground = false,
   dimensions = [100, 100, 100],
   onClick,
@@ -69,9 +66,8 @@ export const CsgValveBlockMesh: FC<CsgValveBlockMeshProps> = ({
     return materialConfig.color
   }, [isSelected, hovered, materialConfig.color])
 
-  // X-Ray 模式下采用 PRD 规范的 0.18 磨砂半透明
-  const effectiveOpacity = isXRay ? 0.18 : materialConfig.opacity
-  const effectiveRoughness = isXRay ? 0.8 : materialConfig.roughness
+  const effectiveOpacity = materialConfig.opacity
+  const effectiveRoughness = materialConfig.roughness
   const isTransparent = effectiveOpacity < 1
 
   // Material 0: 基体未选主表面（单例池化）
@@ -299,7 +295,7 @@ export const CsgValveBlockMesh: FC<CsgValveBlockMeshProps> = ({
       {edgeGeometry && (
         <lineSegments geometry={edgeGeometry}>
           <lineBasicMaterial
-            color={isSelected ? '#0284c7' : isXRay ? '#334155' : isDarkBackground ? '#94a3b8' : '#1e293b'}
+            color={isSelected ? '#0284c7' : isDarkBackground ? '#94a3b8' : '#1e293b'}
             linewidth={1.5}
             polygonOffset={true}
             polygonOffsetFactor={-1}

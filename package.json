@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@embedpdf/react-pdf-viewer": "^2.15.1",
+    "@radix-ui/react-context-menu": "^2.3.7",
     "adm-zip": "^0.6.0",
     "electron-updater": "^6.8.9",
     "pdf-lib": "^1.17.1",

@@ -4,7 +4,7 @@ import { app, BrowserWindow, shell, ipcMain, protocol, net, nativeImage, Menu, s
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { pathToFileURL } from 'node:url'
+import { pathToFileURL, fileURLToPath } from 'node:url'
 import { registerLibraryIpc } from './ipc/libraryIpc'
 import { registerProjectIpc } from './ipc/projectIpc'
 import { FileOpenQueue } from './services/fileOpenQueue'
@@ -198,6 +198,32 @@ app.whenReady().then(() => {
     } else {
       await shell.openPath(targetUrl)
     }
+  })
+  ipcMain.handle('shell:show-item-in-folder', async (_e, fullPath: string) => {
+    if (typeof fullPath !== 'string' || !fullPath.trim()) return false
+    let resolved = fullPath.trim()
+    if (resolved.startsWith('file://')) {
+      try {
+        resolved = fileURLToPath(resolved)
+      } catch {
+        // ignore
+      }
+    } else if (resolved.startsWith('sf-file:')) {
+      try {
+        resolved = resolveSfFilePath(resolved)
+      } catch {
+        // ignore
+      }
+    }
+    if (existsSync(resolved)) {
+      shell.showItemInFolder(resolved)
+      return true
+    }
+    if (process.platform === 'darwin' && !resolved.startsWith('/Volumes') && existsSync(`/Volumes${resolved}`)) {
+      shell.showItemInFolder(`/Volumes${resolved}`)
+      return true
+    }
+    return false
   })
   // 本地安全协议：支持通过 sf-file:// 绝对路径访问本地文档与 3D 模型
   protocol.handle('sf-file', async (request) => {

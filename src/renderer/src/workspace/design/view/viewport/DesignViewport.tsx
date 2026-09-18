@@ -17,7 +17,6 @@ import {
   Activity,
   Grid3X3,
   Scissors,
-  Radio,
   FileDown,
   Palette,
   Eye,
@@ -350,7 +349,6 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
   const createGroupFromSelection = useDesignStore((s) => s.createGroupFromSelection)
   const disbandGroup = useDesignStore((s) => s.disbandGroup)
   const toggleSection = useDesignStore((s) => s.toggleSection)
-  const toggleXRay = useDesignStore((s) => s.toggleXRay)
 
   // 库 store
   const libraryDoc = useLibraryStore((s) => s.doc)
@@ -391,10 +389,9 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
     saveBackgroundPreset(preset)
   }, [])
 
-  // 剖切与 X-Ray 状态
+  // 剖切状态
   const sectionConfig = session?.sectionConfig
   const isSectionEnabled = Boolean(sectionConfig?.enabled)
-  const isXRay = Boolean(session?.xrayMode)
 
   // 剖切截面 (Clipping Plane) 计算 (WebGL Stencil 与 Three.js Clipping)
   const clippingPlanes = useMemo(() => {
@@ -707,12 +704,6 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
         return
       }
 
-      if (e.altKey && (e.key === 'x' || e.key === 'X')) {
-        e.preventDefault()
-        toggleXRay(projectId)
-        return
-      }
-
       if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) {
         const activeTag = (document.activeElement as HTMLElement)?.tagName
         if (activeTag !== 'INPUT' && activeTag !== 'TEXTAREA') {
@@ -744,8 +735,7 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
     createGroupFromSelection,
     disbandGroup,
     selectFeature,
-    toggleSection,
-    toggleXRay
+    toggleSection
   ])
 
   if (!session) return null
@@ -1225,16 +1215,16 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
             <PopoverTrigger asChild>
               <button
                 type="button"
-                title={_t("视图显示与辅助设置（剖切/透视/网格/原点/性能/背景）")}
+                title={_t("视图显示与辅助设置（剖切/网格/原点/性能/背景）")}
                 className={cn(
                   'relative flex size-7 items-center justify-center rounded-md border transition-colors cursor-pointer',
-                  isSectionEnabled || isXRay || showPerf || showGrid
+                  isSectionEnabled || showPerf || showGrid
                     ? 'border-primary/50 bg-primary/10 text-primary font-medium'
                     : 'border-transparent text-muted-foreground hover:bg-accent hover:text-foreground'
                 )}
               >
                 <Eye className="size-4" />
-                {(isSectionEnabled || isXRay) && (
+                {isSectionEnabled && (
                   <span className="absolute right-1 top-1 size-1.5 rounded-full bg-primary animate-pulse" />
                 )}
               </button>
@@ -1249,14 +1239,6 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
                 checked={isSectionEnabled}
                 onCheckedChange={() => toggleSection(projectId)}
                 activeColorClass="text-blue-500"
-              />
-              <DisplayToggleItem
-                icon={Radio}
-                label={_t("X-Ray 透视")}
-                shortcut="Alt+X"
-                checked={isXRay}
-                onCheckedChange={() => toggleXRay(projectId)}
-                activeColorClass="text-cyan-500"
               />
 
               <div className="my-1 h-px bg-border/60" />
@@ -1361,7 +1343,6 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
             selectedFaceId={selected?.type === 'face' ? selected.id : null}
             materialConfig={materialConfig}
             clippingPlanes={clippingPlanes}
-            isXRay={isXRay}
             isDarkBackground={activeBgConfig.isDark}
             dimensions={[sx, sy, sz]}
             onClick={handleMeshClick}
