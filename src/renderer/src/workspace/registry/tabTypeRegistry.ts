@@ -33,6 +33,8 @@ export type TabParams =
       libraryDirPath?: string
       pageStart?: number | null
       pageEnd?: number | null
+      referenceIndex?: number
+      referenceBasePath?: string
     }
 
 export type TabType = 'settings' | 'home' | 'library' | 'design' | 'viewer'

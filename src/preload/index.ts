@@ -27,6 +27,7 @@ const windowControls = {
   minimize: (): void => ipcRenderer.send('window:minimize'),
   toggleMaximize: (): void => ipcRenderer.send('window:toggle-maximize'),
   close: (): void => ipcRenderer.send('window:close'),
+  toggleDevTools: (): void => ipcRenderer.send('window:toggle-devtools'),
   isMaximized: (): Promise<boolean> => ipcRenderer.invoke('window:is-maximized'),
   /** 订阅最大化状态变化，返回取消订阅函数 */
   onMaximizedChange: (cb: (maximized: boolean) => void): (() => void) => {
@@ -56,6 +57,10 @@ const libraryApi = {
   rename: (dirPath: string, newName: string): Promise<LibrarySummary> =>
     ipcRenderer.invoke('library:rename', { dirPath, newName }),
   delete: (dirPath: string): Promise<void> => ipcRenderer.invoke('library:delete', dirPath),
+  listAssets: (dirPath: string, subDir: 'docs' | 'models'): Promise<string[]> =>
+    ipcRenderer.invoke('library:list-assets', { dirPath, subDir }),
+  addAsset: (dirPath: string, subDir: 'docs' | 'models'): Promise<string | null> =>
+    ipcRenderer.invoke('library:add-asset', { dirPath, subDir }),
   registryList: (forceRefresh?: boolean): Promise<import('../shared/cavity/registryTypes').OnlinePackageItem[]> =>
     ipcRenderer.invoke('library:registry-list', forceRefresh),
   registryInstall: (payload: { packageId: string; version: string }): Promise<LibrarySummary> =>

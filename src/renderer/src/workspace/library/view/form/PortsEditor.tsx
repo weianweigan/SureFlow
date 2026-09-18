@@ -18,7 +18,7 @@ import { Label } from '@renderer/components/ui/label'
 import { cn } from '@renderer/lib/utils'
 import { InsertCmd, RemoveCmd, UpdateCmd } from '../../viewmodel/commands'
 import { useLibraryStore } from '../../viewmodel/libraryStore'
-import { NumInput, ToggleSwitch, type IssueForPath } from './FormRenderer'
+import { NumInput, ToggleSwitch, useBoundText, type IssueForPath } from './FormRenderer'
 import { PortsHelpPopover } from './PortsHelpPopover'
 import type { Port } from '@shared/cavity/types'
 
@@ -70,6 +70,22 @@ function MetricCell({
         </p>
       )}
     </div>
+  )
+}
+
+function PortNameInput({ path, index, disabled }: { path: string; index: number; disabled?: boolean }) {
+  const bound = useBoundText(path)
+  return (
+    <input
+      type="text"
+      value={bound.value ?? ''}
+      onChange={bound.onChange}
+      onBlur={bound.onBlur}
+      placeholder={`${_t("侧油口 P")}${index + 1}`}
+      disabled={disabled}
+      className="w-20 bg-transparent text-xs font-medium text-foreground/85 border-b border-transparent hover:border-border focus:border-primary focus:outline-none transition-colors"
+      onClick={(e) => e.stopPropagation()}
+    />
   )
 }
 
@@ -127,8 +143,8 @@ export function PortsEditor({
   }
 
   return (
-    <div className="space-y-2">
-      <div className="divide-y divide-border/60 border-y border-border/60">
+    <div className={ports.length > 0 ? "space-y-2" : ""}>
+      <div className={cn("divide-y divide-border/60 border-border/60", ports.length > 0 && "border-y")}>
         {ports.map((p, i) => {
           const portPath = `${arrPath}.${i}`
           const isBottom = Boolean(p.isBottomPort)
@@ -153,9 +169,7 @@ export function PortsEditor({
               {/* 行 1：标题 + 帮助 + 通底开关 + 删除操作 */}
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-medium text-foreground/85">
-                    {_t("侧油口 P")}{i + 1}
-                  </span>
+                  <PortNameInput path={`${portPath}.name`} index={i} disabled={disabled} />
                   <PortsHelpPopover />
                 </div>
 

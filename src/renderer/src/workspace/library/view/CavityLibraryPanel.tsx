@@ -96,15 +96,18 @@ export default function CavityLibraryPanel(_props: IDockviewPanelProps<TabParams
   const warnCount = validationIssues.filter((i) => i.level === 'warning').length
 
   const doSave = async (): Promise<void> => {
-    const result = await save()
-    if (!result.ok && errorCount > 0) {
+    if (errorCount > 0) {
       const errs = validationIssues.filter((i) => i.level === 'error').slice(0, 6)
-      window.alert(
-        _msg`保存被校验阻断（${errorCount} 处错误）：\n` +
+      const msg = _msg`当前存在 ${errorCount} 处校验错误：\n` +
           errs.map((e) => `• ${e.templateName}（${e.rule}）：${translateMessage(e.message)}`).join('\n') +
-          (errorCount > 6 ? _msg`\n…等 ${errorCount} 处` : '')
-      )
+          (errorCount > 6 ? _msg`\n…等 ${errorCount} 处` : '') +
+          _msg`\n\n您确定要强制保存吗？`
+          
+      if (!window.confirm(msg)) {
+        return
+      }
     }
+    await save({ force: true })
   }
 
   // 快捷键（仅在库面板激活时生效）
@@ -211,7 +214,7 @@ export default function CavityLibraryPanel(_props: IDockviewPanelProps<TabParams
               </button>
             )}
           </div>
-          <div className="min-h-0 flex-1 overflow-auto">
+          <div className="min-h-0 flex-1 flex flex-col">
             {template && basePath ? (
               <TemplateForm template={template} basePath={basePath} readonly={readonly} />
             ) : (

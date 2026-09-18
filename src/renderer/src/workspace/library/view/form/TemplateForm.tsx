@@ -18,12 +18,13 @@ import { FieldRow, ToggleSwitch, useFieldBinding } from './FormRenderer'
 import { StepsEditor } from './StepsEditor'
 import { PortsEditor } from './PortsEditor'
 import {
+  ReferencesHelpPopover,
+  Model3dHelpPopover,
   PortsHelpPopover,
   ComponentBoxesHelpPopover,
-  AnnotationHelpPopover,
-  Model3dHelpPopover,
-  ReferencesHelpPopover
+  AnnotationHelpPopover
 } from './PortsHelpPopover'
+import { MetaEditor } from './MetaEditor'
 import { HolesEditor } from './HolesEditor'
 import { OutlineEditor, OutlineHeaderButtons } from './outline/OutlineEditor'
 import { ComponentBoxesEditor } from './ComponentBoxesEditor'
@@ -291,11 +292,11 @@ function SectionBody({
           issueFor={issueFor}
         />
       )
-    case 'model3d':
+    case 'model3ds':
       return (
         <Model3dEditor
           basePath={basePath}
-          model3d={template.model3d}
+          model3ds={template.model3ds ?? []}
           disabled={disabled}
           issueFor={issueFor}
         />
@@ -305,6 +306,14 @@ function SectionBody({
         <AnnotationEditor
           basePath={basePath}
           template={template}
+          disabled={disabled}
+        />
+      )
+    case 'meta':
+      return (
+        <MetaEditor
+          basePath={basePath}
+          properties={template.meta.properties ?? []}
           disabled={disabled}
         />
       )
@@ -347,6 +356,21 @@ export function TemplateForm({ template, basePath, readonly }: TemplateFormProps
   const execute = useLibraryStore((s) => s.execute)
   const [pendingUnit, setPendingUnit] = useState<'mm' | 'in' | null>(null)
 
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({})
+
+  useEffect(() => {
+    setExpandedSections(prev => {
+      const next = { ...prev }
+      next['annotation'] = !!template.annotation
+      next['meta'] = !!(template.meta?.properties && template.meta.properties.length > 0)
+      return next
+    })
+  }, [template.id])
+
+  const toggleSection = (key: string) => {
+    setExpandedSections(prev => ({...prev, [key]: !prev[key]}))
+  }
+
   // 防御：若当前为非组合孔但含有 holes 字段（无论空数组或非空），自动清理以消除校验阻塞
   useEffect(() => {
     if (!schema.allowed.holes && 'holes' in template && template.holes !== undefined) {
@@ -388,7 +412,7 @@ export function TemplateForm({ template, basePath, readonly }: TemplateFormProps
         else if (s.custom === 'outline' && norm.startsWith('geometry.outline')) m.set(s.key, true)
         else if (s.custom === 'componentBoxes' && norm.startsWith('componentBoxes')) m.set(s.key, true)
         else if (s.custom === 'references' && norm.startsWith('references')) m.set(s.key, true)
-        else if (s.custom === 'model3d' && norm.startsWith('model3d')) m.set(s.key, true)
+        else if (s.custom === 'model3ds' && norm.startsWith('model3ds')) m.set(s.key, true)
         else if (s.custom === 'annotation' && norm.startsWith('annotation')) m.set(s.key, true)
         else if (s.fields?.some((f) => norm.startsWith(f.key))) m.set(s.key, true)
       }
@@ -486,6 +510,25 @@ export function TemplateForm({ template, basePath, readonly }: TemplateFormProps
           }
         }
       }
+      case 'model3ds': {
+        const models = template.model3ds ?? []
+        return {
+          label: _t("添加3D预览模型"),
+          handler: () => {
+            execute(new InsertCmd(`${basePath}.model3ds`, models.length, '', _t("添加3D预览模型")))
+          }
+        }
+      }
+      case 'meta': {
+        const props = template.meta.properties ?? []
+        return {
+          label: _t("添加自定义属性"),
+          handler: () => {
+            const item = { name: '', value: '' }
+            execute(new InsertCmd(`${basePath}.meta.properties`, props.length, item, _t("添加自定义属性")))
+          }
+        }
+      }
       default:
         return undefined
     }
@@ -520,108 +563,14 @@ export function TemplateForm({ template, basePath, readonly }: TemplateFormProps
     ?.fields?.find((f) => f.key === 'name')
 
   return (
-    <div className="flex h-full flex-col">
-      {schema.formSections.map((section, si) => {
-        const hasError = sectionHasError.get(section.key) ?? false
-        const add = addFor(section)
-        return (
-          <section key={section.key} className={cn('relative', si > 0 && 'border-t border-border')}>
-            {/* 扁平组 header（参考 LibrarySidebar.GroupHeader：左侧标题、行尾动作） */}
-            <div className="relative flex h-9 shrink-0 items-center gap-1 pr-2 pl-4">
-              <h4
-                className={cn(
-                  'truncate text-xs font-semibold tracking-wide',
-                  hasError ? 'text-destructive' : 'text-foreground'
-                )}
-              >
-                {_t(section.label)}
-              </h4>
-              {section.custom === 'ports' && <PortsHelpPopover />}
-              {section.custom === 'componentBoxes' && <ComponentBoxesHelpPopover />}
-              {section.custom === 'annotation' && <AnnotationHelpPopover />}
-              {section.custom === 'model3d' && <Model3dHelpPopover />}
-              {section.custom === 'references' && <ReferencesHelpPopover />}
-              {hasError && <CircleAlert className="size-3 shrink-0 text-destructive" />}
-              {section.custom === 'outline' && (
-                <OutlineHeaderButtons
-                  basePath={basePath}
-                  template={template}
-                  disabled={readonly}
-                />
-              )}
-              <div className="ml-auto flex shrink-0 items-center gap-1.5">
-                {section.custom === 'holes' && (
-                  <PolarHeaderToggle basePath={basePath} disabled={readonly} />
-                )}
-                {add && (
-                  <button
-                    type="button"
-                    title={_t(add.label)}
-                    className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                    onClick={add.handler}
-                  >
-                    <Plus className="size-4" />
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="px-3 pb-3">
-              {section.key === 'basic' ? (
-                <div className="space-y-2">
-                  {nameField && (
-                    <FieldRow
-                      label={_t(nameField.label)}
-                      path={`${basePath}.${nameField.key}`}
-                      widget={nameField.widget}
-                      placeholder={nameField.placeholder}
-                      disabled={readonly}
-                      issueFor={issueFor}
-                    />
-                  )}
-                  <TypeSelectRow template={template} basePath={basePath} disabled={readonly} />
-                  <div className="grid grid-cols-[76px_1fr] items-center gap-3">
-                    <span className="truncate text-xs font-medium text-muted-foreground">{_t("单位")}</span>
-                    <div className="flex items-center gap-1.5">
-                      {(['mm', 'in'] as const).map((u) => {
-                        const isActive = (template.unit ?? 'mm') === u
-                        return (
-                          <button
-                            key={u}
-                            type="button"
-                            disabled={readonly}
-                            title={_msg`单位：${u}${isActive ? _t("（当前）") : ''}`}
-                            onClick={() => handleUnitChange(u)}
-                            className={cn(
-                              'flex h-7 min-w-10 items-center justify-center rounded-md border px-3 text-xs font-medium transition-all select-none',
-                              isActive
-                                ? 'border-primary bg-primary/15 text-primary shadow-xs ring-1 ring-primary/40 font-semibold'
-                                : 'border-border/60 bg-background text-muted-foreground hover:border-border hover:bg-accent hover:text-foreground',
-                              readonly && 'cursor-not-allowed opacity-40'
-                            )}
-                          >
-                            {u}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <SectionBody section={section} template={template} basePath={basePath} disabled={readonly} issueFor={issueFor} />
-              )}
-            </div>
-          </section>
-        )
-      })}
-
-      {/* 校验汇总（底部，可折叠列表） */}
+    <div className="flex h-full flex-col min-h-0">
+      {/* 校验汇总（顶部，固定不参与滚动） */}
       {(errors.length > 0 || warnings.length > 0) && (
-        <section className="border-t border-border px-3 py-3">
+        <section className="shrink-0 border-b border-border bg-destructive/5 px-3 py-3">
           <h4 className="flex items-center gap-1.5 text-xs font-semibold text-destructive">
             <CircleAlert className="size-3.5" />
             {_t("校验（")}{errors.length} {_t("错误 /")}{warnings.length} {_t("警告）")}</h4>
-          <ul className="mt-2 space-y-1.5">
+          <ul className="mt-2 space-y-1.5 overflow-y-auto max-h-[160px]">
             {errors.map((iss, k) => (
               <li key={k} className="flex items-center justify-between gap-1.5 text-[11px] leading-relaxed text-destructive">
                 <div className="flex min-w-0 items-start gap-1.5">
@@ -652,6 +601,127 @@ export function TemplateForm({ template, basePath, readonly }: TemplateFormProps
           </ul>
         </section>
       )}
+
+      {/* 表单区域（独立滚动） */}
+      <div className="flex-1 overflow-y-auto">
+        {schema.formSections.map((section, si) => {
+        const hasError = sectionHasError.get(section.key) ?? false
+        const add = addFor(section)
+        
+        const isToggleable = section.custom === 'annotation'
+        const isExpanded = !isToggleable || expandedSections[section.key] !== false
+
+        const isEmptyList = (() => {
+          if (section.key === 'meta') return !template.meta?.properties || template.meta.properties.length === 0
+          if (section.custom === 'model3ds') return !template.model3ds || template.model3ds.length === 0
+          if (section.custom === 'references') return !template.references || template.references.length === 0
+          if (section.custom === 'componentBoxes') return !template.componentBoxes || template.componentBoxes.length === 0
+          if (section.custom === 'holes') return !template.holes || template.holes.length === 0
+          if (section.custom === 'ports') return !template.geometry?.ports || template.geometry.ports.length === 0
+          if (section.custom === 'steps') return !template.geometry?.steps || template.geometry.steps.length === 0
+          return false
+        })()
+
+        return (
+          <section key={section.key} className={cn('relative', si > 0 && 'border-t border-border')}>
+            {/* 扁平组 header（参考 LibrarySidebar.GroupHeader：左侧标题、行尾动作） */}
+            <div className="relative flex h-9 shrink-0 items-center gap-1 pr-2 pl-4">
+              <h4
+                className={cn(
+                  'truncate text-xs font-semibold tracking-wide',
+                  hasError ? 'text-destructive' : 'text-foreground'
+                )}
+              >
+                {_t(section.label)}
+              </h4>
+              {section.custom === 'ports' && <PortsHelpPopover />}
+              {section.custom === 'componentBoxes' && <ComponentBoxesHelpPopover />}
+              {section.custom === 'annotation' && <AnnotationHelpPopover />}
+              {section.custom === 'model3ds' && <Model3dHelpPopover />}
+              {section.custom === 'references' && <ReferencesHelpPopover />}
+              {hasError && <CircleAlert className="size-3 shrink-0 text-destructive" />}
+              {section.custom === 'outline' && (
+                <OutlineHeaderButtons
+                  basePath={basePath}
+                  template={template}
+                  disabled={readonly}
+                />
+              )}
+              <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                {section.custom === 'holes' && (
+                  <PolarHeaderToggle basePath={basePath} disabled={readonly} />
+                )}
+                {isToggleable && (
+                  <ToggleSwitch
+                    checked={isExpanded}
+                    onChange={() => toggleSection(section.key)}
+                    className="scale-85 origin-center"
+                  />
+                )}
+                {add && (
+                  <button
+                    type="button"
+                    title={_t(add.label)}
+                    className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    onClick={add.handler}
+                  >
+                    <Plus className="size-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {isExpanded && (
+              <div className={cn("px-3", isEmptyList ? "pb-0" : "pb-3")}>
+                {section.key === 'basic' ? (
+                  <div className="space-y-2">
+                    {nameField && (
+                      <FieldRow
+                        label={_t(nameField.label)}
+                        path={`${basePath}.${nameField.key}`}
+                        widget={nameField.widget}
+                        placeholder={nameField.placeholder}
+                        disabled={readonly}
+                        issueFor={issueFor}
+                      />
+                    )}
+                    <TypeSelectRow template={template} basePath={basePath} disabled={readonly} />
+                    <div className="grid grid-cols-[76px_1fr] items-center gap-3">
+                      <span className="truncate text-xs font-medium text-muted-foreground">{_t("单位")}</span>
+                      <div className="flex items-center gap-1.5">
+                        {(['mm', 'in'] as const).map((u) => {
+                          const isActive = (template.unit ?? 'mm') === u
+                          return (
+                            <button
+                              key={u}
+                              type="button"
+                              disabled={readonly}
+                              title={_msg`单位：${u}${isActive ? _t("（当前）") : ''}`}
+                              onClick={() => handleUnitChange(u)}
+                              className={cn(
+                                'flex h-7 min-w-10 items-center justify-center rounded-md border px-3 text-xs font-medium transition-all select-none',
+                                isActive
+                                  ? 'border-primary bg-primary/15 text-primary shadow-xs ring-1 ring-primary/40 font-semibold'
+                                  : 'border-border/60 bg-background text-muted-foreground hover:border-border hover:bg-accent hover:text-foreground',
+                                readonly && 'cursor-not-allowed opacity-40'
+                              )}
+                            >
+                              {u}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <SectionBody section={section} template={template} basePath={basePath} disabled={readonly} issueFor={issueFor} />
+                )}
+              </div>
+            )}
+          </section>
+        )
+      })}
+      </div>
 
       {pendingUnit && (
         <UnitSwitchDialog

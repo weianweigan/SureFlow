@@ -143,8 +143,8 @@ export function ComponentBoxesEditor({
   }
 
   return (
-    <div className="space-y-2">
-      <div className="divide-y divide-border/60 border-y border-border/60">
+    <div className={boxes.length > 0 ? "space-y-2" : ""}>
+      <div className={cn("divide-y divide-border/60 border-border/60", boxes.length > 0 && "border-y")}>
         {boxes.map((b, i) => {
           const boxPath = `${arrPath}.${i}`
 

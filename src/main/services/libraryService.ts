@@ -10,8 +10,8 @@
 
 import { existsSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import { mkdtemp, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
-import { join, basename, resolve } from 'node:path'
+import { mkdtemp, mkdir, readFile, readdir, rename, rm, writeFile, copyFile } from 'node:fs/promises'
+import { basename, resolve, join } from 'node:path'
 import type { Dirent } from 'node:fs'
 import AdmZip from 'adm-zip'
 import type { CavityLibrary, LibrarySummary, ImportSource } from '../../shared/cavity/types'
@@ -125,6 +125,24 @@ export async function createLibrary(
     templateCount: 0,
     readonly: false
   }
+}
+
+/** 列出库目录下的指定子目录的文件名 */
+export async function listLibraryAssets(dirPath: string, subDir: 'docs' | 'models'): Promise<string[]> {
+  try {
+    const entries = await readdir(join(dirPath, subDir), { withFileTypes: true })
+    return entries.filter((e) => e.isFile()).map((e) => e.name)
+  } catch {
+    return []
+  }
+}
+
+/** 添加文件到库目录下的指定子目录 */
+export async function addLibraryAsset(dirPath: string, subDir: 'docs' | 'models', sourceFile: string): Promise<string> {
+  const name = basename(sourceFile)
+  const target = join(dirPath, subDir, name)
+  await copyFile(sourceFile, target)
+  return name
 }
 
 /** 同步序保证目录名不冲突：MyLibrary → MyLibrary-2 → MyLibrary-3 … */

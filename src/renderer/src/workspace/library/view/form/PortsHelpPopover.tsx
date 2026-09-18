@@ -170,7 +170,7 @@ export function ReferencesHelpPopover() {
         <div className="space-y-1.5 text-[11px] text-muted-foreground">
           <div>
             <span className="font-medium text-foreground">{_t("· 本地 PDF：")}</span>
-            {_t("放置于当前库包")}<code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px] text-foreground">docs/</code> {_t("文件夹中（如 docs/sample.pdf），可配置起始页和结束页。")}</div>
+            {_t("选择库包内的文档，可配置起始页和结束页。")}</div>
           <div>
             <span className="font-medium text-foreground">{_t("· 在线网址：")}</span>
             {_t("填写以")}<code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px] text-foreground">https://</code> {_t("开头的技术样本或手册在线链接，可一键跳转浏览器查看。")}</div>

@@ -4,6 +4,7 @@ import { t as _t } from '@shared/i18n'
  * 通用浏览 Tab 面板组件（ViewerTabPanel）
  * 承载 PDF 文档、网页、图片以及 CAD (STEP/GLB) 模型的统一浏览
  */
+import { useEffect, useState } from 'react'
 import type { IDockviewPanelProps } from 'dockview-react'
 import type { TabParams } from '../registry/tabTypeRegistry'
 import { CadModelViewer } from './viewer/CadModelViewer'
@@ -13,7 +14,14 @@ import { WebBrowserViewer } from './viewer/WebBrowserViewer'
 
 export default function ViewerTabPanel(props: IDockviewPanelProps<TabParams>) {
   _useLocale()
-  const params = props.params as TabParams
+  const [params, setParams] = useState<TabParams>(props.params as TabParams)
+
+  useEffect(() => {
+    const disposable = props.api.onDidParametersChange((event) => {
+      setParams(event as TabParams)
+    })
+    return () => disposable.dispose()
+  }, [props.api])
   if (params.kind !== 'viewer') {
     return (
       <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
@@ -21,7 +29,7 @@ export default function ViewerTabPanel(props: IDockviewPanelProps<TabParams>) {
     )
   }
 
-  const { subType, target, libraryDirPath, pageStart, pageEnd } = params
+  const { subType, target, libraryDirPath, pageStart, pageEnd, referenceIndex, referenceBasePath } = params
 
   switch (subType) {
     case 'cad':
@@ -33,6 +41,8 @@ export default function ViewerTabPanel(props: IDockviewPanelProps<TabParams>) {
           libraryDirPath={libraryDirPath}
           pageStart={pageStart}
           pageEnd={pageEnd}
+          referenceIndex={referenceIndex}
+          referenceBasePath={referenceBasePath}
         />
       )
     case 'image':

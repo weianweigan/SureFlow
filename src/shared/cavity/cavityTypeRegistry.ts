@@ -53,8 +53,9 @@ export type CustomSectionKey =
   | 'outline'
   | 'componentBoxes'
   | 'references'
-  | 'model3d'
+  | 'model3ds'
   | 'annotation'
+  | 'meta'
 
 export interface FormSection {
   key: string
@@ -109,15 +110,7 @@ const SECTION_BASIC: FormSection = {
   ]
 }
 
-const SECTION_META: FormSection = {
-  key: 'meta',
-  label: '备注信息',
-  fields: [
-    { key: 'meta.supplier', label: '供应商', widget: 'text', placeholder: '如 SUN' },
-    { key: 'meta.remark', label: '备注', widget: 'text', placeholder: '如 GB 825-1988' },
-    { key: 'meta.standards.0', label: '标准', widget: 'text', placeholder: '如 GB/T 2878' }
-  ]
-}
+const SECTION_META: FormSection = { key: 'meta', label: '备注信息', custom: 'meta' }
 
 const SECTION_STEPS: FormSection = { key: 'steps', label: '台阶序列', custom: 'steps' }
 const SECTION_PORTS: FormSection = { key: 'ports', label: '侧油口', custom: 'ports' }
@@ -126,7 +119,7 @@ const SECTION_LAYOUT: FormSection = { key: 'layout', label: '布局', custom: 'l
 const SECTION_OUTLINE: FormSection = { key: 'outline', label: '安装轮廓', custom: 'outline' }
 const SECTION_COMPONENT_BOXES: FormSection = { key: 'componentBoxes', label: '元件包围盒', custom: 'componentBoxes' }
 const SECTION_ANNOTATION: FormSection = { key: 'annotation', label: '标注信息', custom: 'annotation' }
-const SECTION_MODEL3D: FormSection = { key: 'model3d', label: '3D 预览模型', custom: 'model3d' }
+const SECTION_MODEL3D: FormSection = { key: 'model3ds', label: '3D 预览模型', custom: 'model3ds' }
 const SECTION_REFERENCES: FormSection = { key: 'references', label: '参考文档', custom: 'references' }
 
 const SECTION_PLUG: FormSection = {

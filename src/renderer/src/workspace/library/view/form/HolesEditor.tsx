@@ -9,7 +9,7 @@ import { t as _t, msg as _msg } from '@shared/i18n'
  * 选中态：左侧 4px 黑色实线条，背景浅绿 #E9F3E9，与 2D 安装面画布（FaceView）双向联动。
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { Check, ChevronDown, ChevronUp, Settings2, Trash2 } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import { Label } from '@renderer/components/ui/label'
@@ -204,6 +204,16 @@ function HoleDetailBody({
   const storePortIndex = useLibraryStore((s) => s.selectedPortIndex)
   const storeSetPortIndex = useLibraryStore((s) => s.setSelectedPortIndex)
 
+  const handleSelectStep = useCallback((idx: number | null) => {
+    storeSetStepIndex(idx)
+    if (idx != null) storeSetPortIndex(null)
+  }, [storeSetStepIndex, storeSetPortIndex])
+
+  const handleSelectPort = useCallback((idx: number | null) => {
+    storeSetPortIndex(idx)
+    if (idx != null) storeSetStepIndex(null)
+  }, [storeSetPortIndex, storeSetStepIndex])
+
   // 引用模式：点选库 / 模板
   if (hole.ref) {
     return (
@@ -305,10 +315,7 @@ function HoleDetailBody({
           showAddBtn={true}
           issueFor={issueFor}
           selectedStepIndex={storeStepIndex}
-          onSelectStep={(idx) => {
-            storeSetStepIndex(idx)
-            if (idx != null) storeSetPortIndex(null)
-          }}
+          onSelectStep={handleSelectStep}
         />
       )}
 
@@ -322,10 +329,7 @@ function HoleDetailBody({
           showAddBtn={true}
           issueFor={issueFor}
           selectedPortIndex={storePortIndex}
-          onSelectPort={(idx) => {
-            storeSetPortIndex(idx)
-            if (idx != null) storeSetStepIndex(null)
-          }}
+          onSelectPort={handleSelectPort}
         />
       )}
     </div>
@@ -564,7 +568,7 @@ export function HolesEditor({
         </span>
       </div>
 
-      <div className="divide-y divide-border/60 border-y border-border/60">
+      <div className={cn("divide-y divide-border/60 border-border/60", holes.length > 0 && "border-y")}>
         {holes.map((h, i) => {
           const holePath = `${arrPath}.${i}`
           const isRef = h.ref != null

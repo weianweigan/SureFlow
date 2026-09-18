@@ -118,7 +118,7 @@ export interface LibraryState {
   moveCategory(sourceId: string, targetId: string, position: 'before' | 'after' | 'inside'): void
   moveTemplate(sourceTemplateId: string, targetId: string, position: 'before' | 'after' | 'insideCategory'): void
 
-  save(): Promise<{ ok: boolean; issues: ValidationIssue[] }>
+  save(options?: { force?: boolean }): Promise<{ ok: boolean; issues: ValidationIssue[] }>
   createLibrary(name?: string): Promise<string>
   renameLibrary(id: string, newName: string): Promise<void>
   exportLibrary(id: string): Promise<void>
@@ -701,11 +701,10 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     get().execute(new CompositeCmd(_msg`删除分类「${node.name}」`, cmds))
   },
 
-  save: async () => {
+  save: async (options) => {
     const s = get()
     if (!s.doc || !s.activeDirPath) return { ok: false, issues: [] }
 
-    // 自动清理非组合孔模板上的 holes 残留字段（对齐 PRD-002 V7）
     for (const tpl of s.doc.templates) {
       if (!isComboType(tpl.cavityType) && 'holes' in tpl) {
         delete (tpl as any).holes
@@ -713,7 +712,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     }
 
     const issues = validateLibrary(s.doc)
-    if (hasErrors(issues)) return { ok: false, issues }
+    if (!options?.force && hasErrors(issues)) return { ok: false, issues }
     set({ saving: true })
     try {
       const doc: CavityLibrary = {

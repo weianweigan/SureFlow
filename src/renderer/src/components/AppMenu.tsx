@@ -8,7 +8,8 @@ import {
   Info,
   RefreshCw,
   Check,
-  CircleAlert
+  CircleAlert,
+  Terminal
 } from 'lucide-react'
 import { useLocale } from '@renderer/i18n/useLocale'
 import { t } from '@shared/i18n'
@@ -150,6 +151,23 @@ export function AppMenu() {
             <MessageSquare className="size-4 text-muted-foreground shrink-0" />
             <span className="flex-1 text-left">{t('问题与建议')}</span>
           </button>
+
+          <Separator className="my-1 bg-border" />
+
+          {/* 5. 开发者工具 */}
+          {window.windowControls?.toggleDevTools && (
+            <button
+              type="button"
+              className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground cursor-pointer select-none"
+              onClick={() => {
+                setMenuOpen(false)
+                window.windowControls.toggleDevTools()
+              }}
+            >
+              <Terminal className="size-4 text-muted-foreground shrink-0" />
+              <span className="flex-1 text-left">{t('开发者工具')}</span>
+            </button>
+          )}
 
           <Separator className="my-1 bg-border" />
 

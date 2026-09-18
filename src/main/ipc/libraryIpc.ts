@@ -18,6 +18,8 @@ import {
   readLibrary,
   renameLibrary,
   writeLibrary,
+  listLibraryAssets,
+  addLibraryAsset,
   type ImportSource,
   type LibraryPaths
 } from '../services/libraryService'
@@ -104,6 +106,22 @@ export function registerLibraryIpc(): void {
     deleteLibrary(dirPath, (p) => shell.trashItem(p))
   )
 
+  ipcMain.handle('library:list-assets', (_e, payload: { dirPath: string; subDir: 'docs' | 'models' }) => {
+    return listLibraryAssets(payload.dirPath, payload.subDir)
+  })
+
+  ipcMain.handle('library:add-asset', async (_e, payload: { dirPath: string; subDir: 'docs' | 'models' }) => {
+    const filters = payload.subDir === 'docs'
+      ? [{ name: 'PDF', extensions: ['pdf'] }]
+      : [{ name: '3D Models', extensions: ['glb', 'gltf', 'step', 'stp', 'iges', 'igs'] }]
+    const r = await dialog.showOpenDialog({
+      title: '添加文件',
+      properties: ['openFile'],
+      filters
+    })
+    if (r.canceled || r.filePaths.length === 0) return null
+    return addLibraryAsset(payload.dirPath, payload.subDir, r.filePaths[0])
+  })
 
   /* ---------- 在线孔腔库市场（PRD-FR-03-02） ---------- */
 

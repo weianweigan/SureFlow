@@ -10,13 +10,14 @@ import { t as _t } from '@shared/i18n'
  * - 说明信息统一移入组标题行「?」帮助 Popover。
  */
 
-import { ExternalLink, FileText, Globe, Plus, Trash2, Eye } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ExternalLink, FileText, Globe, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
 import { Label } from '@renderer/components/ui/label'
 import { InsertCmd, RemoveCmd, UpdateCmd } from '../../viewmodel/commands'
 import { useLibraryStore } from '../../viewmodel/libraryStore'
 import { openViewerTab } from '@renderer/workspace/registry/panelActions'
-import { NumInput, useBoundText, type IssueForPath } from './FormRenderer'
+import { NumInput, useBoundText, SelectInput, type IssueForPath } from './FormRenderer'
 import { cn } from '@renderer/lib/utils'
 import type { Reference } from '@shared/cavity/types'
 
@@ -69,7 +70,34 @@ export function ReferencesEditor({
   const activeDirPath = useLibraryStore((s) => s.activeDirPath)
   const arrPath = `${basePath}.references`
 
-  const handleOpenReferenceInWorkspace = (ref: Reference) => {
+  const [pdfOptions, setPdfOptions] = useState<{value: string, label: string}[]>([])
+
+  useEffect(() => {
+    if (activeDirPath) {
+      window.libraryApi.listAssets(activeDirPath, 'docs').then(files => {
+        setPdfOptions(files.map(f => ({ value: `docs/${f}`, label: f })))
+      }).catch(console.error)
+    }
+  }, [activeDirPath])
+
+  const handleAddPdfFile = async (refPath: string, currentPath: string | null | undefined) => {
+    if (disabled || !activeDirPath) return
+    try {
+      const filename = await window.libraryApi.addAsset(activeDirPath, 'docs')
+      if (filename) {
+        setPdfOptions(prev => {
+          const nv = { value: `docs/${filename}`, label: filename }
+          if (!prev.find(o => o.value === nv.value)) return [...prev, nv]
+          return prev
+        })
+        execute(new UpdateCmd(`${refPath}.path`, `docs/${filename}`, currentPath ?? null, _t("修改PDF路径")))
+      }
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  const handleOpenReferenceInWorkspace = (ref: Reference, index?: number) => {
     const target = ref.kind === 'pdf' ? ref.path : ref.url
     if (!target) return
     openViewerTab({
@@ -78,7 +106,9 @@ export function ReferencesEditor({
       target,
       libraryDirPath: activeDirPath || undefined,
       pageStart: ref.pageStart,
-      pageEnd: ref.pageEnd
+      pageEnd: ref.pageEnd,
+      referenceIndex: index,
+      referenceBasePath: arrPath
     })
   }
 
@@ -125,17 +155,12 @@ export function ReferencesEditor({
     execute(new UpdateCmd(refPath, next, cur, _t("切换文档类型")))
   }
 
-  const handleOpenUrl = (url?: string | null) => {
-    if (!url || !url.startsWith('http')) return
-    window.open(url, '_blank', 'noopener,noreferrer')
-  }
 
   return (
-    <div className="space-y-2">
-      <div className="divide-y divide-border/60 border-y border-border/60">
+    <div className={references.length > 0 ? "space-y-2" : ""}>
+      <div className={cn("divide-y divide-border/60 border-border/60", references.length > 0 && "border-y")}>
         {references.map((r, i) => {
           const refPath = `${arrPath}.${i}`
-          const hasTarget = Boolean(r.kind === 'pdf' ? r.path : r.url)
 
           return (
             <div key={i} className="relative px-3 py-2.5 transition-colors space-y-2 hover:bg-muted/30">
@@ -153,7 +178,7 @@ export function ReferencesEditor({
                   <button
                     type="button"
                     disabled={disabled}
-                    title={_t("本地 PDF (docs/)")}
+                    title={_t("本地 PDF")}
                     onClick={() => handleSwitchKind(i, r, 'pdf')}
                     className={cn(
                       'flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] transition-all',
@@ -184,16 +209,6 @@ export function ReferencesEditor({
                   </button>
                 </div>
 
-                {/* 在工作区浏览按钮 */}
-                <button
-                  type="button"
-                  title={_t("在工作区打开浏览")}
-                  disabled={disabled || !hasTarget}
-                  className="flex size-7 items-center justify-center rounded-md border border-border/60 bg-background text-primary transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
-                  onClick={() => handleOpenReferenceInWorkspace(r)}
-                >
-                  <Eye className="size-3.5" />
-                </button>
 
                 <button
                   type="button"
@@ -208,15 +223,47 @@ export function ReferencesEditor({
 
               {/* 行 2：参数直接录入 */}
               {r.kind === 'pdf' ? (
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-[1fr_72px_72px] gap-2">
                   <div>
-                    <Label className="mb-1 block text-[11px] font-medium text-muted-foreground/80">{_t("PDF 路径")}</Label>
-                    <RefFieldInput
-                      path={`${refPath}.path`}
-                      placeholder="docs/sample.pdf"
-                      disabled={disabled}
-                      className="font-mono text-xs"
-                    />
+                    <Label className="mb-1 block text-[11px] font-medium text-muted-foreground/80">{_t("PDF")}</Label>
+                    {(() => {
+                      const currentOpt = pdfOptions.find(o => o.value === r.path)
+                      const renderPdfOptions = [{value: '', label: _t('请选择文件...')}, ...pdfOptions]
+                      if (r.path && !currentOpt) {
+                        renderPdfOptions.push({ value: r.path, label: r.path.replace(/^docs\//, '') })
+                      }
+                      return (
+                        <div className="flex items-center gap-1">
+                          <SelectInput
+                            value={r.path || ''}
+                            options={renderPdfOptions}
+                            disabled={disabled}
+                            onChange={(val) => {
+                              execute(new UpdateCmd(`${refPath}.path`, val || null, r.path ?? null, _t("修改PDF路径")))
+                            }}
+                            className="font-mono text-xs flex-1"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleAddPdfFile(refPath, r.path)}
+                            disabled={disabled}
+                            className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
+                            title={_t("添加本地文件")}
+                          >
+                            <Plus className="size-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            title={_t("在新标签页查看")}
+                            disabled={disabled || !r.path}
+                            className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border/60 bg-background text-primary transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+                            onClick={() => handleOpenReferenceInWorkspace(r, i)}
+                          >
+                            <ExternalLink className="size-3.5" />
+                          </button>
+                        </div>
+                      )
+                    })()}
                   </div>
                   <div>
                     <Label className="mb-1 block text-[11px] font-medium text-muted-foreground/80">{_t("起始页")}</Label>
@@ -233,7 +280,7 @@ export function ReferencesEditor({
                     <NumInput
                       path={`${refPath}.pageEnd`}
                       placeholder={_t("选填")}
-                      min={1}
+                      min={r.pageStart ?? 1}
                       integer
                       disabled={disabled}
                     />
@@ -253,8 +300,8 @@ export function ReferencesEditor({
                   {r.url && r.url.startsWith('http') && (
                     <button
                       type="button"
-                      title={_t("在浏览器中打开链接")}
-                      onClick={() => handleOpenUrl(r.url)}
+                      title={_t("在新标签页查看")}
+                      onClick={() => handleOpenReferenceInWorkspace(r, i)}
                       className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
                     >
                       <ExternalLink className="size-3.5" />

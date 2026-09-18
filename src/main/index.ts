@@ -1,5 +1,5 @@
 import { initAutoUpdater } from './updater'
-import { app, BrowserWindow, shell, ipcMain, protocol, net, nativeImage, Menu } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, protocol, net, nativeImage, Menu, session } from 'electron'
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
@@ -65,6 +65,7 @@ protocol.registerSchemesAsPrivileged([
       standard: true,
       secure: true,
       supportFetchAPI: true,
+      corsEnabled: true,
       bypassCSP: true,
       stream: true
     }
@@ -126,6 +127,28 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   if (!hasLock) return
+
+  // 移除阻止 iframe 嵌套的响应头，以允许在软件内部浏览器 Tab 中加载外部网页参考资料
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const responseHeaders = { ...details.responseHeaders }
+    const keys = Object.keys(responseHeaders)
+    for (const key of keys) {
+      const lowerKey = key.toLowerCase()
+      if (lowerKey === 'x-frame-options') {
+        delete responseHeaders[key]
+      } else if (lowerKey === 'content-security-policy') {
+        const csp = responseHeaders[key][0]?.toLowerCase() || ''
+        if (csp.includes('frame-ancestors')) {
+          responseHeaders[key][0] = responseHeaders[key][0].replace(/frame-ancestors[^;]+;?/gi, '')
+        }
+      }
+    }
+    callback({
+      cancel: false,
+      responseHeaders
+    })
+  })
+
   ipcMain.handle('files:drain', () => fileQueue.drain())
   ipcMain.handle('associations:query', () => queryFileAssociations())
   ipcMain.handle('associations:configure', (_e, extension: AssociatedExtension) => configureFileAssociation(extension))
@@ -136,6 +159,7 @@ app.whenReady().then(() => {
     if (window?.isMaximized()) window.unmaximize(); else window?.maximize()
   })
   ipcMain.on('window:close', (e) => BrowserWindow.fromWebContents(e.sender)?.close())
+  ipcMain.on('window:toggle-devtools', (e) => BrowserWindow.fromWebContents(e.sender)?.webContents.toggleDevTools())
   ipcMain.handle('window:is-maximized', (e) => BrowserWindow.fromWebContents(e.sender)?.isMaximized() ?? false)
   ipcMain.handle('app:open-external', async (_e, targetUrl: string) => {
     if (typeof targetUrl === 'string' && (targetUrl.startsWith('https://') || targetUrl.startsWith('http://'))) {

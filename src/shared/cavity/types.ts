@@ -66,6 +66,8 @@ export interface Step {
 /* ---------- §8.3 侧油口 ---------- */
 
 export interface Port {
+  /** 自定义端口名称（如 P, T, A, B 等） */
+  name?: string
   /** 深度位置（mm，沿 Y 轴孔深方向浮动）：非通底表示中心轴线；通底表示起始线（直通孔底最深处） */
   depth: number
   /** mm；非通底表示上下开孔范围（> 0）；通底时不需要直径（可为 null/undefined） */
@@ -201,16 +203,21 @@ export interface Annotation {
 
 /* ---------- §5 模板（L3） ---------- */
 
+export interface CustomProperty {
+  name: string
+  value: string
+}
+
 export interface TemplateMeta {
-  remark?: string
-  supplier?: string
-  standards?: string[]
+  properties?: CustomProperty[]
   createdAt: string
   updatedAt: string
   revision: number
   /** 软删除标记 */
   archived?: boolean
   legacyId?: string | null
+  standards?: string[]
+  supplier?: string
 }
 
 export interface CavityTemplate {
@@ -225,7 +232,8 @@ export interface CavityTemplate {
   holes?: Hole[]
   annotation?: Annotation
   references?: Reference[]
-  model3d?: string | null
+  /** 3D 模型相对路径（可选），如 "models/valve.glb"，支持多个 */
+  model3ds?: string[]
   componentBoxes?: ComponentBox[]
   meta: TemplateMeta
 }

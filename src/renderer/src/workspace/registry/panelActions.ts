@@ -84,13 +84,22 @@ export function openDesignTab(options?: OpenDesignTabOptions | string): void {
     return
   }
 
+  // 尝试放入 home panel 所在的 group 的最后，如果找不到则放入 activeGroup 最后
+  let index: number | undefined
+  const homePanel = api.getPanel('home')
+  if (homePanel) {
+    index = homePanel.group.panels.length
+  } else if (api.activeGroup) {
+    index = api.activeGroup.panels.length
+  }
+
   api.addPanel({
     id,
     component: def.component,
     params,
     title: def.title(params),
     tabComponent: def.tabComponent,
-    position: { referencePanel: 'home', direction: 'within' }
+    position: { referencePanel: 'home', direction: 'within', index }
   })
 
   // 记录最近打开文件（仅有 filePath 时）
@@ -135,6 +144,8 @@ export interface OpenViewerTabOptions {
   libraryDirPath?: string
   pageStart?: number | null
   pageEnd?: number | null
+  referenceIndex?: number
+  referenceBasePath?: string
   viewerId?: string
 }
 
@@ -157,15 +168,23 @@ export function openViewerTab(options: OpenViewerTabOptions): void {
     target: options.target,
     libraryDirPath: options.libraryDirPath,
     pageStart: options.pageStart,
-    pageEnd: options.pageEnd
+    pageEnd: options.pageEnd,
+    referenceIndex: options.referenceIndex,
+    referenceBasePath: options.referenceBasePath
   }
 
   const id = panelIdFor('viewer', params)
   const existing = api.getPanel(id)
   if (existing) {
+    existing.api.updateParameters(params)
     existing.api.setActive()
     api.focus()
     return
+  }
+
+  let index: number | undefined
+  if (api.activeGroup) {
+    index = api.activeGroup.panels.length
   }
 
   api.addPanel({
@@ -174,7 +193,7 @@ export function openViewerTab(options: OpenViewerTabOptions): void {
     params,
     title,
     tabComponent: def.tabComponent,
-    position: { direction: 'within' }
+    position: { direction: 'within', index }
   })
 }
 

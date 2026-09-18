@@ -235,8 +235,8 @@ export function StepsEditor({
   }
 
   return (
-    <div className="space-y-2">
-      <div className="divide-y divide-border/60 border-y border-border/60">
+    <div className={steps.length > 0 ? "space-y-2" : ""}>
+      <div className={cn("divide-y divide-border/60 border-border/60", steps.length > 0 && "border-y")}>
         {steps.map((s, i) => {
         const stepPath = `${arrPath}.${i}`
         const isLast = i === steps.length - 1

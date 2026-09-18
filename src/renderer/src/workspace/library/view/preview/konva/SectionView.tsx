@@ -1,5 +1,5 @@
 import { useLocale as _useLocale } from '@renderer/i18n/useLocale'
-import { msg as _msg } from '@shared/i18n'
+import { msg as _msg, t as _t } from '@shared/i18n'
 /**
  * 剖面图视图（konva，非组合孔）
  *
@@ -258,19 +258,21 @@ function computePortGeom(p: import('@shared/cavity/types').Port, i: number, sec:
   let yCenter: number
   let portLabel: string
 
+  const portName = p.name?.trim() || `P${i + 1}`
+
   if (isBottom) {
     yTop = p.depth ?? 0
     // 通底：自起始深直达孔底最深处
     yBottom = Math.max(sec.totalDepth, yTop >= sec.totalDepth ? yTop + 8 : sec.totalDepth)
     yCenter = (yTop + yBottom) / 2
-    portLabel = _msg`P${i + 1} 通底`
+    portLabel = `${portName} ${_t("通底")}`
   } else {
     const dia = p.diameter && p.diameter > 0 ? p.diameter : 8
     const r = dia / 2
     yCenter = p.depth ?? 0
     yTop = yCenter - r
     yBottom = yCenter + r
-    portLabel = `P${i + 1} φ${dia}`
+    portLabel = `${portName} φ${dia}`
   }
 
   // 侧油口向右侧延伸的矩形长度

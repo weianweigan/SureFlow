@@ -87,7 +87,8 @@ const THIRD_PARTY_PACKAGES = [
   { name: 'Dockview', license: 'MIT', desc: '专业桌面 CAD 式多标签页与灵活分栏停靠布局系统', author: 'Dan Williams' },
   { name: 'TailwindCSS & Radix UI', license: 'MIT', desc: '无障碍交互组件原语与现代化工业界面设计系统', author: 'Tailwind Labs / WorkOS' },
   { name: 'Lucide Icons', license: 'ISC', desc: '界面矢量图标库', author: 'Lucide Project' },
-  { name: 'Inter & JetBrains Mono', license: 'OFL-1.1', desc: '界面排版与等宽工程参数字体', author: 'Rasmus Andersson / JetBrains s.r.o.' }
+  { name: 'Inter & JetBrains Mono', license: 'OFL-1.1', desc: '界面排版与等宽工程参数字体', author: 'Rasmus Andersson / JetBrains s.r.o.' },
+  { name: 'React PDF Viewer', license: 'MIT', desc: '用于预览和阅读 PDF 格式文档及样本', author: 'react-pdf-viewer' }
 ]
 
 export const AboutDialog: FC<AboutDialogProps> = ({ isOpen, onClose }) => {
