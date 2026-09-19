@@ -41,7 +41,14 @@ import {
 } from '../../model/designStore'
 import { useLibraryStore } from '../../../library/viewmodel/libraryStore'
 import { openProjectDialog } from '../../../../workspace/registry/panelActions'
-import { getBoxFaceBasis, getCavityWorldMatrix, detectBoxFace, localToWorldPoint } from '@shared/design/faceMath'
+import {
+  getBoxFaceBasis,
+  getCavityWorldMatrix,
+  detectBaseBodyFace,
+  localToWorldPoint,
+  mapFaceIdToViewPreset,
+  determineObservedFacePreset
+} from '@shared/design/faceMath'
 import { getCavitySteps } from '../../geometry/cavityProfileBuilder'
 import { csgBridge } from '../../worker/csg/csgWorkerBridge'
 import { CsgValveBlockMesh, type MeshRayHit } from './CsgValveBlockMesh'
@@ -69,6 +76,7 @@ import { packMeshCache, unpackMeshCache, exportToGlb } from '../../geometry/mesh
 import { captureFittedPreview } from '../../geometry/viewportCapture'
 import { PerformanceCollector, PerformanceHud, usePerfStore } from './PerformanceOverlay'
 import { classifyAndGroupCsgGeometry, type TriangleTag } from '../../geometry/meshClassifier'
+import { parseStepToThreeGeometry } from '../../../tabs/viewer/stepLoader'
 import { resolveMaterialConfig } from '@shared/design/types'
 import type { MaterialConfig } from '@shared/design/types'
 import type { ThreeEvent } from '@react-three/fiber'
@@ -447,16 +455,113 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
     isComputing: false
   })
 
+  // 外部 STEP 模型网格缓存引用
+  const stepMeshCacheRef = useRef<{ content: string; mesh: any } | null>(null)
+
   // 基础备选几何体（从原点沿 +x, +y, +z 方向拉伸 [0, sx] × [0, sy] × [0, sz]）
   const fallbackGeom = useMemo(() => {
     if (!session) return null
     const [sx, sy, sz] = session.doc.baseBody.dimensions
+    const template = session.doc.baseBody.template || 'box'
+    const extraParams = session.doc.baseBody.extraParams || {}
+
+    if (session.doc.baseBody.type === 'template' && template === 'l-shape') {
+      const cutX = extraParams.cutX ?? sx * 0.4
+      const cutZ = extraParams.cutZ ?? sz * 0.5
+      const shape = new THREE.Shape()
+      shape.moveTo(0, 0)
+      shape.lineTo(sx, 0)
+      shape.lineTo(sx, sz - cutZ)
+      shape.lineTo(sx - cutX, sz - cutZ)
+      shape.lineTo(sx - cutX, sz)
+      shape.lineTo(0, sz)
+      shape.closePath()
+      const geom = new THREE.ExtrudeGeometry(shape, { depth: sy, bevelEnabled: false })
+      geom.rotateX(Math.PI / 2)
+      geom.translate(0, sy, 0)
+      geom.computeVertexNormals()
+      const edges = new THREE.EdgesGeometry(geom, 24)
+      return { box: geom, edges }
+    }
+
+    if (session.doc.baseBody.type === 'template' && template === 't-shape') {
+      const cutX = extraParams.cutX ?? sx * 0.25
+      const cutZ = extraParams.cutZ ?? sz * 0.5
+      const shape = new THREE.Shape()
+      shape.moveTo(cutX, 0)
+      shape.lineTo(sx - cutX, 0)
+      shape.lineTo(sx - cutX, cutZ)
+      shape.lineTo(sx, cutZ)
+      shape.lineTo(sx, sz)
+      shape.lineTo(0, sz)
+      shape.lineTo(0, cutZ)
+      shape.lineTo(cutX, cutZ)
+      shape.closePath()
+      const geom = new THREE.ExtrudeGeometry(shape, { depth: sy, bevelEnabled: false })
+      geom.rotateX(Math.PI / 2)
+      geom.translate(0, sy, 0)
+      geom.computeVertexNormals()
+      const edges = new THREE.EdgesGeometry(geom, 24)
+      return { box: geom, edges }
+    }
+
+    if (session.doc.baseBody.type === 'step' && session.doc.baseBody.stepMesh) {
+      const sm = session.doc.baseBody.stepMesh
+      const geom = new THREE.BufferGeometry()
+      geom.setAttribute('position', new THREE.Float32BufferAttribute(sm.positions, 3))
+      if (sm.normals) {
+        geom.setAttribute('normal', new THREE.Float32BufferAttribute(sm.normals, 3))
+      } else {
+        geom.computeVertexNormals()
+      }
+      geom.setIndex(Array.from(sm.indices))
+      let edges: THREE.BufferGeometry
+      if (sm.edgePositions && sm.edgePositions.length > 0) {
+        edges = new THREE.BufferGeometry()
+        edges.setAttribute('position', new THREE.Float32BufferAttribute(sm.edgePositions, 3))
+      } else {
+        edges = new THREE.EdgesGeometry(geom, 24)
+      }
+      return { box: geom, edges }
+    }
+
+    if (session.doc.baseBody.type === 'template' && template === 'cross-shape') {
+      const cutX = extraParams.cutX ?? sx * 0.25
+      const cutZ = extraParams.cutZ ?? sz * 0.25
+      const shape = new THREE.Shape()
+      shape.moveTo(cutX, 0)
+      shape.lineTo(sx - cutX, 0)
+      shape.lineTo(sx - cutX, cutZ)
+      shape.lineTo(sx, cutZ)
+      shape.lineTo(sx, sz - cutZ)
+      shape.lineTo(sx - cutX, sz - cutZ)
+      shape.lineTo(sx - cutX, sz)
+      shape.lineTo(cutX, sz)
+      shape.lineTo(cutX, sz - cutZ)
+      shape.lineTo(0, sz - cutZ)
+      shape.lineTo(0, cutZ)
+      shape.lineTo(cutX, cutZ)
+      shape.closePath()
+      const geom = new THREE.ExtrudeGeometry(shape, { depth: sy, bevelEnabled: false })
+      geom.rotateX(Math.PI / 2)
+      geom.translate(0, sy, 0)
+      geom.computeVertexNormals()
+      const edges = new THREE.EdgesGeometry(geom, 24)
+      return { box: geom, edges }
+    }
+
     const box = new THREE.BoxGeometry(sx, sy, sz)
     box.clearGroups()
     box.translate(sx / 2, sy / 2, sz / 2)
     const edges = new THREE.EdgesGeometry(box, 24)
     return { box, edges }
-  }, [session?.doc.baseBody.dimensions])
+  }, [
+    session?.doc.baseBody.dimensions,
+    session?.doc.baseBody.template,
+    session?.doc.baseBody.type,
+    session?.doc.baseBody.stepMesh,
+    session?.doc.baseBody.extraParams
+  ])
 
   // 极速冷启动：若会话中存在初次载入的二进制缓存，立即反序列化呈现 (首帧呈现耗时 <= 200ms, PRD-FR-04-07 §2.1)
   useEffect(() => {
@@ -482,7 +587,10 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
         session.doc.baseBody.dimensions,
         activeScheme.cavities,
         session.selected?.type === 'cavity' ? session.selected.id : null,
-        session.selected?.type === 'face' ? session.selected.id : null
+        session.selected?.type === 'face' ? session.selected.id : null,
+        undefined,
+        undefined,
+        session.doc.baseBody
       )
 
       setCsgState({
@@ -518,7 +626,7 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
 
     async function runCsg() {
       const cavitiesInput = activeScheme.cavities.map((cav, idx) => {
-        const basis = getBoxFaceBasis(cav.faceId, doc.baseBody.dimensions)
+        const basis = getBoxFaceBasis(cav.faceId, doc.baseBody.dimensions, doc.baseBody)
         const worldMatrix = Array.from(
           getCavityWorldMatrix(
             basis,
@@ -540,8 +648,31 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
         }
       })
 
+      let stepMesh: any = doc.baseBody.stepMesh
+      if (doc.baseBody.type === 'step' && !stepMesh && doc.baseBody.stepContent) {
+        if (stepMeshCacheRef.current?.content === doc.baseBody.stepContent) {
+          stepMesh = stepMeshCacheRef.current.mesh
+        } else {
+          try {
+            const parsed = await parseStepToThreeGeometry(doc.baseBody.stepContent)
+            stepMesh = parsed.stepMesh
+            stepMeshCacheRef.current = { content: doc.baseBody.stepContent, mesh: stepMesh }
+          } catch (err) {
+            console.warn('[DesignViewport] 解析 STEP 实体失败:', err)
+          }
+        }
+      }
+
+      const baseBodyInput = {
+        type: doc.baseBody.type,
+        template: doc.baseBody.template,
+        dimensions: doc.baseBody.dimensions,
+        extraParams: doc.baseBody.extraParams,
+        stepMesh
+      }
+
       const t0 = performance.now()
-      const res = await csgBridge.computeDifference(doc.baseBody, cavitiesInput)
+      const res = await csgBridge.computeDifference(baseBodyInput, cavitiesInput)
       if (!res || isCancelled) return
       const cost = Math.round(performance.now() - t0)
       usePerfStore.getState().setCsgTime(cost)
@@ -566,7 +697,8 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
         getSelectedCavityIds(session.selected, activeScheme),
         session.selected?.type === 'face' ? session.selected.id : null,
         res.faceTags,
-        res.numericIdToInstanceId
+        res.numericIdToInstanceId,
+        doc.baseBody
       )
 
       setCsgState({
@@ -585,6 +717,9 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
   }, [
     session?.doc.baseBody.dimensions,
     session?.doc.baseBody.template,
+    session?.doc.baseBody.type,
+    session?.doc.baseBody.extraParams,
+    session?.doc.baseBody.stepContent,
     session?.doc.activeSchemeId,
     session?.doc.schemes,
     libraryDoc
@@ -611,7 +746,8 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
       selectedCavityIds,
       selectedFaceId,
       rawCsgRef.current.faceTags,
-      rawCsgRef.current.numericIdToInstanceId
+      rawCsgRef.current.numericIdToInstanceId,
+      doc.baseBody
     )
 
     setCsgState((prev) => ({
@@ -637,7 +773,7 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
       const activeScheme = doc.schemes.find((s) => s.id === doc.activeSchemeId) || doc.schemes[0]
       const cav = activeScheme.cavities.find((c) => c.instanceId === cavId)
       if (cav) {
-        const basis = getBoxFaceBasis(cav.faceId, [sx, sy, sz])
+        const basis = getBoxFaceBasis(cav.faceId, [sx, sy, sz], doc.baseBody)
         const mouth = localToWorldPoint(basis, cav.u, cav.v, cav.depthOffset)
         const bRad = Math.sqrt(sx * sx + sy * sy + sz * sz) / 2
         const dist = Math.max(bRad * 1.5, 120)
@@ -653,6 +789,50 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
     [session]
   )
 
+  // 智能全屏居中与正视：单面孔腔直接正视该面；否则推断用户正在观察/面积最大的面
+  const handleFitView = useCallback(() => {
+    if (!session) return
+
+    let targetPreset: ViewPreset | null = null
+
+    // 1. 若当前直接选中的是面，优先正视该面
+    if (session.selected?.type === 'face') {
+      targetPreset = mapFaceIdToViewPreset(session.selected.id)
+    }
+
+    // 2. 检查选中的孔腔：若用户选中的孔腔都位于同一个面上，则直接正视该面
+    if (!targetPreset && selectedCavityIds.length > 0 && activeSchemeForSelection) {
+      const selectedCavities = activeSchemeForSelection.cavities.filter((c) =>
+        selectedCavityIds.includes(c.instanceId)
+      )
+      if (selectedCavities.length > 0) {
+        const firstFaceId = selectedCavities[0].faceId
+        const allSameFace = selectedCavities.every((c) => c.faceId === firstFaceId)
+        if (allSameFace) {
+          targetPreset = mapFaceIdToViewPreset(firstFaceId)
+        }
+      }
+    }
+
+    // 3. 若未确定面（未选孔腔或跨面选孔），根据当前相机视线朝向与观察面积智能推断
+    if (!targetPreset) {
+      const controls = orbitControlsRef.current
+      if (controls?.object) {
+        const camera = controls.object as THREE.Camera
+        const forward = new THREE.Vector3()
+        camera.getWorldDirection(forward)
+        targetPreset = determineObservedFacePreset(forward, session.doc.baseBody.dimensions)
+      } else {
+        targetPreset = viewPreset || 'top'
+      }
+    }
+
+    if (targetPreset) {
+      setViewPreset(targetPreset)
+    }
+    setFitTrigger((k) => k + 1)
+  }, [session, selectedCavityIds, activeSchemeForSelection, viewPreset])
+
   // 监听外部触发的聚焦事件（如特征树双击）
   useEffect(() => {
     const handleFocusEvent = (e: any) => {
@@ -664,7 +844,7 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
     return () => window.removeEventListener('sureflow:focus-cavity', handleFocusEvent)
   }, [focusOnCavity])
 
-  // F 键全屏居中快捷键、Z 键聚焦、Ctrl+G 成组/解散组与 Esc 取消选择
+  // F 键智能正视与全屏居中快捷键、Z 键聚焦、Ctrl+G 成组/解散组与 Esc 取消选择
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName
@@ -672,7 +852,7 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
 
       if ((e.key === 'f' || e.key === 'F') && !e.ctrlKey && !e.metaKey) {
         e.preventDefault()
-        setFitTrigger((k) => k + 1)
+        handleFitView()
         return
       }
 
@@ -730,6 +910,7 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [
     session?.selected,
+    handleFitView,
     focusOnCavity,
     projectId,
     createGroupFromSelection,
@@ -871,7 +1052,7 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
           }
         }
         if (hit.normal) {
-          const detected = detectBoxFace(hit.normal, hit.point, doc.baseBody.dimensions)
+          const detected = detectBaseBodyFace(hit.normal, hit.point, doc.baseBody)
           if (detected) {
             setFaceClickPoint(hit.point.clone())
             selectFeature(projectId, { type: 'face', id: detected })
@@ -883,7 +1064,7 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
       // 3. 兜底基体选择
       selectFeature(projectId, { type: 'base', id: 'base' })
     },
-    [csgState.triangleTags, doc.baseBody.dimensions, handleCavitySelect, projectId, selectFeature]
+    [csgState.triangleTags, doc.baseBody, handleCavitySelect, projectId, selectFeature]
   )
 
   // 双击始终提升到组合孔；独立孔聚焦。
@@ -971,7 +1152,8 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
           null,
           null,
           rawCsgRef.current.faceTags,
-          rawCsgRef.current.numericIdToInstanceId
+          rawCsgRef.current.numericIdToInstanceId,
+          doc.baseBody
         )
         geomToExport = classified.solidGeometry
         edgeToExport = classified.edgeGeometry
@@ -1195,12 +1377,12 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
             </PopoverContent>
           </Popover>
 
-          {/* 全屏居中适应 */}
+          {/* 全屏居中适应 / 智能正视 */}
           <button
             type="button"
-            title={_t("全屏居中适应（F 键）")}
+            title={_t("全屏居中适应 / 智能正视（F 键）")}
             className="flex size-7 items-center justify-center rounded border border-border hover:bg-accent text-foreground transition-colors cursor-pointer"
-            onClick={() => setFitTrigger((k) => k + 1)}
+            onClick={handleFitView}
           >
             <Focus className="size-3.5" />
           </button>
@@ -1373,6 +1555,7 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
             <FaceBasisGizmo
               faceId={selected.id}
               dimensions={[sx, sy, sz]}
+              baseBody={doc.baseBody}
               clickPoint={faceClickPoint}
               onNormalTo={(faceId) => {
                 const presetMap: Record<string, ViewPreset> = {

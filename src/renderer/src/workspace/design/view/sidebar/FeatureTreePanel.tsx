@@ -105,7 +105,7 @@ export const FeatureTreePanel: FC<FeatureTreePanelProps> = ({ projectId }) => {
 
   const libraryDoc = useLibraryStore((s) => s.doc)
 
-  const [baseExpanded, setBaseExpanded] = useState(true)
+  const [baseExpanded, setBaseExpanded] = useState(false)
   const [groupsExpanded, setGroupsExpanded] = useState<Record<string, boolean>>({})
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -226,7 +226,7 @@ export const FeatureTreePanel: FC<FeatureTreePanelProps> = ({ projectId }) => {
 
       {/* ── 树状节点列表（直接铺开基体与所有特征节点，不使用孔腔特征外层文件夹） ── */}
       <div className="flex-1 space-y-0.5 overflow-auto px-2 py-1 text-xs">
-        {/* 1. 基体特征节点 */}
+        {/* 1. 基体特征节点（默认折叠面子节点，点击直接选中基体） */}
         <div>
           <div
             className={cn(
@@ -257,10 +257,10 @@ export const FeatureTreePanel: FC<FeatureTreePanelProps> = ({ projectId }) => {
             </span>
           </div>
 
-          {/* 基体特征展开：子节点为各个安装面 */}
+          {/* 基体特征展开：子节点为当前基体的安装面 */}
           {baseExpanded && (
             <div className="space-y-0.5 pl-6 py-0.5">
-              {doc.baseBody.faces.map((face: BaseFaceDefinition) => {
+              {(doc.baseBody.faces || []).map((face: BaseFaceDefinition) => {
                 const isFaceSelected = selected?.type === 'face' && selected.id === face.id
                 return (
                   <div

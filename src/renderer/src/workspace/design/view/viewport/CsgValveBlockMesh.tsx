@@ -226,7 +226,7 @@ export const CsgValveBlockMesh: FC<CsgValveBlockMeshProps> = ({
     raycastSelection(e.ray, scene, activePlanes).map(hit => ({
       cavityId: hit.object.userData.cavityId,
       faceIndex: hit.object.userData.cavityId ? undefined : hit.faceIndex ?? undefined,
-      normal: hit.face?.normal,
+      normal: hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : undefined,
       point: hit.point,
       distance: hit.distance
     }))

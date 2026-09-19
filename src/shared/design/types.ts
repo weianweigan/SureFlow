@@ -9,14 +9,28 @@
 
 import type { Step, Port, Outline, CavityType } from '../cavity/types'
 
+export interface FaceParamBinding {
+  param: 'dimensions' | 'extraParams'
+  key: string
+  sign: 1 | -1
+  description?: string
+}
+
 export interface BaseFaceDefinition {
   id: string
   name: string
   type: 'plane' | 'cylinder'
   normal: [number, number, number]
+  origin?: [number, number, number]
+  u?: [number, number, number]
+  v?: [number, number, number]
+  centerPoint?: [number, number, number]
+  area?: number
+  bounds?: { minX?: number; maxX?: number; minY?: number; maxY?: number; minZ?: number; maxZ?: number }
+  paramBinding?: FaceParamBinding
 }
 
-export type BaseBodyTemplate = 'box' | 'l-shape' | 't-shape'
+export type BaseBodyTemplate = 'box' | 'l-shape' | 't-shape' | 'cross-shape'
 
 /** 材质渲染配置 */
 export interface MaterialConfig {
@@ -30,33 +44,56 @@ export interface MaterialConfig {
   roughness: number
   /** 不透明度 0~1 (1 = 完全不透明，0.9 = 90% 不透明) */
   opacity: number
+  /** 材料密度 (g/cm³)，用户可修改 */
+  density?: number
 }
 
 /** 常用工程材料预设 */
-export const MATERIAL_PRESETS: Record<string, MaterialConfig & { label: string }> = {
+export const MATERIAL_PRESETS: Record<string, MaterialConfig & { label: string; density: number }> = {
   '45-steel': {
     label: '45# 优质碳素结构钢',
     presetId: '45-steel',
     color: '#a0a4a8',
     metalness: 0.55,
     roughness: 0.35,
-    opacity: 0.0
+    opacity: 0.0,
+    density: 7.85
   },
-  'ht200': {
-    label: 'HT200 灰铸铁',
-    presetId: 'ht200',
-    color: '#8a8e8a',
-    metalness: 0.30,
-    roughness: 0.60,
-    opacity: 0.0
+  '40cr': {
+    label: '40Cr 合金结构钢',
+    presetId: '40cr',
+    color: '#94989d',
+    metalness: 0.60,
+    roughness: 0.30,
+    opacity: 0.0,
+    density: 7.87
   },
   '6061-t6': {
     label: '6061-T6 铝合金',
     presetId: '6061-t6',
-    color: '#c8ccd0',
-    metalness: 0.70,
+    color: '#c4c8cc',
+    metalness: 0.50,
     roughness: 0.25,
-    opacity: 0.0
+    opacity: 0.0,
+    density: 2.70
+  },
+  '7075-t6': {
+    label: '7075-T6 超硬铝合金',
+    presetId: '7075-t6',
+    color: '#ccd0d4',
+    metalness: 0.52,
+    roughness: 0.22,
+    opacity: 0.0,
+    density: 2.81
+  },
+  'qt500': {
+    label: 'QT500-7 球墨铸铁',
+    presetId: 'qt500',
+    color: '#707478',
+    metalness: 0.35,
+    roughness: 0.55,
+    opacity: 0.0,
+    density: 7.10
   },
   '304-ss': {
     label: '304 不锈钢',
@@ -64,7 +101,8 @@ export const MATERIAL_PRESETS: Record<string, MaterialConfig & { label: string }
     color: '#b8bcc0',
     metalness: 0.65,
     roughness: 0.30,
-    opacity: 0.0
+    opacity: 0.0,
+    density: 7.93
   },
   'custom': {
     label: '自定义材质',
@@ -72,24 +110,45 @@ export const MATERIAL_PRESETS: Record<string, MaterialConfig & { label: string }
     color: '#a8a8a4',
     metalness: 0.35,
     roughness: 0.45,
-    opacity: 0.0
+    opacity: 0.0,
+    density: 7.85
   }
 }
 
 /** 根据材料字符串或预设 ID 获取 MaterialConfig（向后兼容） */
 export function resolveMaterialConfig(material?: string, config?: MaterialConfig): MaterialConfig {
-  if (config) return config
+  if (config) {
+    if (config.density === undefined) {
+      const p = MATERIAL_PRESETS[config.presetId]
+      return { ...config, density: p?.density ?? 7.85 }
+    }
+    return config
+  }
   // 尝试匹配预设
   if (material) {
     for (const [key, preset] of Object.entries(MATERIAL_PRESETS)) {
       if (key === material || preset.label === material) {
-        return { presetId: preset.presetId, color: preset.color, metalness: preset.metalness, roughness: preset.roughness, opacity: preset.opacity }
+        return {
+          presetId: preset.presetId,
+          color: preset.color,
+          metalness: preset.metalness,
+          roughness: preset.roughness,
+          opacity: preset.opacity,
+          density: preset.density
+        }
       }
     }
   }
   // 默认回退 45# 钢
   const def = MATERIAL_PRESETS['45-steel']
-  return { presetId: def.presetId, color: def.color, metalness: def.metalness, roughness: def.roughness, opacity: def.opacity }
+  return {
+    presetId: def.presetId,
+    color: def.color,
+    metalness: def.metalness,
+    roughness: def.roughness,
+    opacity: def.opacity,
+    density: def.density
+  }
 }
 
 /** 基体边缘处理模式 */
@@ -107,8 +166,19 @@ export interface BaseBodyConfig {
   /** 边缘处理：锐边 / 1mm×45° 微倒角 */
   chamfer?: ChamferMode
   stepAssetRef?: string | null
+  /** 导入的 STEP 文本或二进制数据 */
+  stepContent?: string
+  /** 导入的 STEP 原始文件名 */
+  stepFileName?: string
+  /** 导入的 STEP 几何网格缓存 */
+  stepMesh?: {
+    positions: Float32Array | number[]
+    indices: Uint32Array | number[]
+    normals?: Float32Array | number[]
+    edgePositions?: Float32Array | number[]
+  }
   faces: BaseFaceDefinition[]
-  /** 额外几何参数（例如 L 型台阶、T 型凸台） */
+  /** 额外几何参数（例如 L 型台阶、T 型凸台、十字形切口） */
   extraParams?: Record<string, number>
 }
 
@@ -248,50 +318,133 @@ export interface SfbProject {
 
 /** 长方体 6 个标准面生成 */
 export const STANDARD_BOX_FACES: BaseFaceDefinition[] = [
-  { id: 'top', name: '顶面 (Top)', type: 'plane', normal: [0, 0, 1] },
-  { id: 'bottom', name: '底面 (Bottom)', type: 'plane', normal: [0, 0, -1] },
-  { id: 'front', name: '前面 (Front)', type: 'plane', normal: [0, -1, 0] },
-  { id: 'back', name: '后面 (Back)', type: 'plane', normal: [0, 1, 0] },
-  { id: 'left', name: '左面 (Left)', type: 'plane', normal: [-1, 0, 0] },
-  { id: 'right', name: '右面 (Right)', type: 'plane', normal: [1, 0, 0] }
+  { id: 'top', name: '顶面 (Top)', type: 'plane', normal: [0, 0, 1], paramBinding: { param: 'dimensions', key: 'sz', sign: 1, description: '调整基体高度 Lz' } },
+  { id: 'bottom', name: '底面 (Bottom)', type: 'plane', normal: [0, 0, -1], paramBinding: { param: 'dimensions', key: 'sz', sign: -1, description: '调整基体高度 Lz' } },
+  { id: 'front', name: '前面 (Front)', type: 'plane', normal: [0, -1, 0], paramBinding: { param: 'dimensions', key: 'sy', sign: -1, description: '调整基体宽度 Ly' } },
+  { id: 'back', name: '后面 (Back)', type: 'plane', normal: [0, 1, 0], paramBinding: { param: 'dimensions', key: 'sy', sign: 1, description: '调整基体宽度 Ly' } },
+  { id: 'left', name: '左面 (Left)', type: 'plane', normal: [-1, 0, 0], paramBinding: { param: 'dimensions', key: 'sx', sign: -1, description: '调整基体长度 Lx' } },
+  { id: 'right', name: '右面 (Right)', type: 'plane', normal: [1, 0, 0], paramBinding: { param: 'dimensions', key: 'sx', sign: 1, description: '调整基体长度 Lx' } }
 ]
 
 /** L型基体标准 8 个面 */
 export const L_SHAPE_FACES: BaseFaceDefinition[] = [
-  { id: 'top-main', name: '顶主面 (Top Main)', type: 'plane', normal: [0, 0, 1] },
-  { id: 'top-step', name: '台阶顶面 (Top Step)', type: 'plane', normal: [0, 0, 1] },
-  { id: 'bottom', name: '底面 (Bottom)', type: 'plane', normal: [0, 0, -1] },
-  { id: 'front-main', name: '前主面 (Front Main)', type: 'plane', normal: [0, -1, 0] },
-  { id: 'step-wall', name: '阶梯竖面 (Step Wall)', type: 'plane', normal: [0, -1, 0] },
-  { id: 'back', name: '后面 (Back)', type: 'plane', normal: [0, 1, 0] },
-  { id: 'left', name: '左面 (Left)', type: 'plane', normal: [-1, 0, 0] },
-  { id: 'right', name: '右面 (Right)', type: 'plane', normal: [1, 0, 0] }
+  { id: 'top-main', name: '顶主面 (Top Main)', type: 'plane', normal: [0, 0, 1], paramBinding: { param: 'dimensions', key: 'sz', sign: 1, description: '调整基体高度 Lz' } },
+  { id: 'top-step', name: '台阶顶面 (Top Step)', type: 'plane', normal: [0, 0, 1], paramBinding: { param: 'extraParams', key: 'cutZ', sign: -1, description: '调整台阶深度 cutZ' } },
+  { id: 'bottom', name: '底面 (Bottom)', type: 'plane', normal: [0, 0, -1], paramBinding: { param: 'dimensions', key: 'sz', sign: -1, description: '调整基体高度 Lz' } },
+  { id: 'front-main', name: '前主面 (Front Main)', type: 'plane', normal: [0, -1, 0], paramBinding: { param: 'dimensions', key: 'sy', sign: -1, description: '调整基体宽度 Ly' } },
+  { id: 'step-wall', name: '阶梯竖面 (Step Wall)', type: 'plane', normal: [1, 0, 0], paramBinding: { param: 'extraParams', key: 'cutX', sign: -1, description: '调整台阶切除 cutX' } },
+  { id: 'back', name: '后面 (Back)', type: 'plane', normal: [0, 1, 0], paramBinding: { param: 'dimensions', key: 'sy', sign: 1, description: '调整基体宽度 Ly' } },
+  { id: 'left', name: '左面 (Left)', type: 'plane', normal: [-1, 0, 0], paramBinding: { param: 'dimensions', key: 'sx', sign: -1, description: '调整基体长度 Lx' } },
+  { id: 'right', name: '右面 (Right)', type: 'plane', normal: [1, 0, 0], paramBinding: { param: 'dimensions', key: 'sx', sign: 1, description: '调整基体长度 Lx' } }
 ]
 
 /** T型基体标准 10 个面 */
 export const T_SHAPE_FACES: BaseFaceDefinition[] = [
-  { id: 'top-flange', name: '翼缘顶面 (Top Flange)', type: 'plane', normal: [0, 0, 1] },
-  { id: 'flange-bottom-left', name: '翼缘左底面 (Flange Bot Left)', type: 'plane', normal: [0, 0, -1] },
-  { id: 'flange-bottom-right', name: '翼缘右底面 (Flange Bot Right)', type: 'plane', normal: [0, 0, -1] },
-  { id: 'bottom-web', name: '腹板底面 (Bottom Web)', type: 'plane', normal: [0, 0, -1] },
-  { id: 'front', name: '前面 (Front)', type: 'plane', normal: [0, -1, 0] },
-  { id: 'back', name: '后面 (Back)', type: 'plane', normal: [0, 1, 0] },
-  { id: 'left-flange', name: '翼缘左面 (Left Flange)', type: 'plane', normal: [-1, 0, 0] },
-  { id: 'right-flange', name: '翼缘右面 (Right Flange)', type: 'plane', normal: [1, 0, 0] },
-  { id: 'left-web', name: '腹板左面 (Left Web)', type: 'plane', normal: [-1, 0, 0] },
-  { id: 'right-web', name: '腹板右面 (Right Web)', type: 'plane', normal: [1, 0, 0] }
+  { id: 'top-flange', name: '翼缘顶面 (Top Flange)', type: 'plane', normal: [0, 0, 1], paramBinding: { param: 'dimensions', key: 'sz', sign: 1, description: '调整基体高度 Lz' } },
+  { id: 'flange-bottom-left', name: '翼缘左底面 (Flange Bot Left)', type: 'plane', normal: [0, 0, -1], paramBinding: { param: 'extraParams', key: 'cutZ', sign: 1, description: '调整翼缘深度 cutZ' } },
+  { id: 'flange-bottom-right', name: '翼缘右底面 (Flange Bot Right)', type: 'plane', normal: [0, 0, -1], paramBinding: { param: 'extraParams', key: 'cutZ', sign: 1, description: '调整翼缘深度 cutZ' } },
+  { id: 'bottom-web', name: '腹板底面 (Bottom Web)', type: 'plane', normal: [0, 0, -1], paramBinding: { param: 'dimensions', key: 'sz', sign: -1, description: '调整基体高度 Lz' } },
+  { id: 'front', name: '前面 (Front)', type: 'plane', normal: [0, -1, 0], paramBinding: { param: 'dimensions', key: 'sy', sign: -1, description: '调整基体宽度 Ly' } },
+  { id: 'back', name: '后面 (Back)', type: 'plane', normal: [0, 1, 0], paramBinding: { param: 'dimensions', key: 'sy', sign: 1, description: '调整基体宽度 Ly' } },
+  { id: 'left-flange', name: '翼缘左面 (Left Flange)', type: 'plane', normal: [-1, 0, 0], paramBinding: { param: 'dimensions', key: 'sx', sign: -1, description: '调整基体长度 Lx' } },
+  { id: 'right-flange', name: '翼缘右面 (Right Flange)', type: 'plane', normal: [1, 0, 0], paramBinding: { param: 'dimensions', key: 'sx', sign: 1, description: '调整基体长度 Lx' } },
+  { id: 'left-web', name: '腹板左面 (Left Web)', type: 'plane', normal: [-1, 0, 0], paramBinding: { param: 'extraParams', key: 'cutX', sign: -1, description: '调整腹板宽度 cutX' } },
+  { id: 'right-web', name: '腹板右面 (Right Web)', type: 'plane', normal: [1, 0, 0], paramBinding: { param: 'extraParams', key: 'cutX', sign: -1, description: '调整腹板宽度 cutX' } }
 ]
 
-export function getFacesForTemplate(template?: BaseBodyTemplate): BaseFaceDefinition[] {
-  switch (template) {
-    case 'l-shape':
-      return [...L_SHAPE_FACES]
-    case 't-shape':
-      return [...T_SHAPE_FACES]
-    case 'box':
-    default:
-      return [...STANDARD_BOX_FACES]
+/** 十字型基体标准 14 个面 */
+export const CROSS_SHAPE_FACES: BaseFaceDefinition[] = [
+  { id: 'top-center', name: '顶部中心面 (Top Center)', type: 'plane', normal: [0, 0, 1], paramBinding: { param: 'dimensions', key: 'sz', sign: 1, description: '调整基体高度 Lz' } },
+  { id: 'bottom-center', name: '底部中心面 (Bottom Center)', type: 'plane', normal: [0, 0, -1], paramBinding: { param: 'dimensions', key: 'sz', sign: -1, description: '调整基体高度 Lz' } },
+  { id: 'left-center', name: '左侧中心面 (Left Center)', type: 'plane', normal: [-1, 0, 0], paramBinding: { param: 'dimensions', key: 'sx', sign: -1, description: '调整基体长度 Lx' } },
+  { id: 'right-center', name: '右侧中心面 (Right Center)', type: 'plane', normal: [1, 0, 0], paramBinding: { param: 'dimensions', key: 'sx', sign: 1, description: '调整基体长度 Lx' } },
+  { id: 'front', name: '前面 (Front)', type: 'plane', normal: [0, -1, 0], paramBinding: { param: 'dimensions', key: 'sy', sign: -1, description: '调整基体宽度 Ly' } },
+  { id: 'back', name: '后面 (Back)', type: 'plane', normal: [0, 1, 0], paramBinding: { param: 'dimensions', key: 'sy', sign: 1, description: '调整基体宽度 Ly' } },
+  { id: 'top-left-down', name: '左上凹槽底面 (Top Left Down)', type: 'plane', normal: [0, 0, -1], paramBinding: { param: 'extraParams', key: 'cutZ', sign: 1, description: '调整切口深度 cutZ' } },
+  { id: 'top-left-wall', name: '左上凹槽竖面 (Top Left Wall)', type: 'plane', normal: [1, 0, 0], paramBinding: { param: 'extraParams', key: 'cutX', sign: -1, description: '调整切口宽度 cutX' } },
+  { id: 'top-right-down', name: '右上凹槽底面 (Top Right Down)', type: 'plane', normal: [0, 0, -1], paramBinding: { param: 'extraParams', key: 'cutZ', sign: 1, description: '调整切口深度 cutZ' } },
+  { id: 'top-right-wall', name: '右上凹槽竖面 (Top Right Wall)', type: 'plane', normal: [-1, 0, 0], paramBinding: { param: 'extraParams', key: 'cutX', sign: 1, description: '调整切口宽度 cutX' } },
+  { id: 'bot-left-up', name: '左下凹槽顶面 (Bot Left Up)', type: 'plane', normal: [0, 0, 1], paramBinding: { param: 'extraParams', key: 'cutZ', sign: 1, description: '调整切口深度 cutZ' } },
+  { id: 'bot-left-wall', name: '左下凹槽竖面 (Bot Left Wall)', type: 'plane', normal: [1, 0, 0], paramBinding: { param: 'extraParams', key: 'cutX', sign: -1, description: '调整切口宽度 cutX' } },
+  { id: 'bot-right-up', name: '右下凹槽顶面 (Bot Right Up)', type: 'plane', normal: [0, 0, 1], paramBinding: { param: 'extraParams', key: 'cutZ', sign: 1, description: '调整切口深度 cutZ' } },
+  { id: 'bot-right-wall', name: '右下凹槽竖面 (Bot Right Wall)', type: 'plane', normal: [-1, 0, 0], paramBinding: { param: 'extraParams', key: 'cutX', sign: 1, description: '调整切口宽度 cutX' } }
+]
+
+export function computeTemplateFaces(
+  template: BaseBodyTemplate = 'box',
+  dimensions: [number, number, number] = [120, 100, 80],
+  extraParams: Record<string, number> = {}
+): BaseFaceDefinition[] {
+  const [sx, sy, sz] = dimensions
+  if (template === 'l-shape') {
+    const cutX = extraParams.cutX ?? sx * 0.4
+    const cutZ = extraParams.cutZ ?? sz * 0.5
+    return [
+      { id: 'top-main', name: '顶主面 (Top Main)', type: 'plane', normal: [0, 0, 1], origin: [0, 0, sz], u: [1, 0, 0], v: [0, 1, 0], centerPoint: [(sx - cutX) / 2, sy / 2, sz], paramBinding: { param: 'dimensions', key: 'sz', sign: 1, description: '调整基体高度 Lz' } },
+      { id: 'top-step', name: '台阶顶面 (Top Step)', type: 'plane', normal: [0, 0, 1], origin: [0, 0, sz - cutZ], u: [1, 0, 0], v: [0, 1, 0], centerPoint: [sx - cutX / 2, sy / 2, sz - cutZ], paramBinding: { param: 'extraParams', key: 'cutZ', sign: -1, description: '调整台阶深度 cutZ' } },
+      { id: 'bottom', name: '底面 (Bottom)', type: 'plane', normal: [0, 0, -1], origin: [0, 0, 0], u: [1, 0, 0], v: [0, -1, 0], centerPoint: [sx / 2, sy / 2, 0], paramBinding: { param: 'dimensions', key: 'sz', sign: -1, description: '调整基体高度 Lz' } },
+      { id: 'front-main', name: '前主面 (Front Main)', type: 'plane', normal: [0, -1, 0], origin: [0, 0, 0], u: [1, 0, 0], v: [0, 0, 1], centerPoint: [sx / 2, 0, sz / 2], paramBinding: { param: 'dimensions', key: 'sy', sign: -1, description: '调整基体宽度 Ly' } },
+      { id: 'step-wall', name: '阶梯竖面 (Step Wall)', type: 'plane', normal: [1, 0, 0], origin: [sx - cutX, 0, 0], u: [0, 1, 0], v: [0, 0, 1], centerPoint: [sx - cutX, sy / 2, sz - cutZ / 2], paramBinding: { param: 'extraParams', key: 'cutX', sign: -1, description: '调整台阶切除 cutX' } },
+      { id: 'back', name: '后面 (Back)', type: 'plane', normal: [0, 1, 0], origin: [0, sy, 0], u: [-1, 0, 0], v: [0, 0, 1], centerPoint: [sx / 2, sy, sz / 2], paramBinding: { param: 'dimensions', key: 'sy', sign: 1, description: '调整基体宽度 Ly' } },
+      { id: 'left', name: '左面 (Left)', type: 'plane', normal: [-1, 0, 0], origin: [0, 0, 0], u: [0, -1, 0], v: [0, 0, 1], centerPoint: [0, sy / 2, sz / 2], paramBinding: { param: 'dimensions', key: 'sx', sign: -1, description: '调整基体长度 Lx' } },
+      { id: 'right', name: '右面 (Right)', type: 'plane', normal: [1, 0, 0], origin: [sx, 0, 0], u: [0, 1, 0], v: [0, 0, 1], centerPoint: [sx, sy / 2, (sz - cutZ) / 2], paramBinding: { param: 'dimensions', key: 'sx', sign: 1, description: '调整基体长度 Lx' } }
+    ]
   }
+
+  if (template === 't-shape') {
+    const cutX = extraParams.cutX ?? sx * 0.25
+    const cutZ = extraParams.cutZ ?? sz * 0.5
+    return [
+      { id: 'top-flange', name: '翼缘顶面 (Top Flange)', type: 'plane', normal: [0, 0, 1], origin: [0, 0, sz], u: [1, 0, 0], v: [0, 1, 0], centerPoint: [sx / 2, sy / 2, sz], paramBinding: { param: 'dimensions', key: 'sz', sign: 1, description: '调整基体高度 Lz' } },
+      { id: 'flange-bottom-left', name: '翼缘左底面 (Flange Bot Left)', type: 'plane', normal: [0, 0, -1], origin: [0, 0, cutZ], u: [1, 0, 0], v: [0, -1, 0], centerPoint: [cutX / 2, sy / 2, cutZ], paramBinding: { param: 'extraParams', key: 'cutZ', sign: 1, description: '调整翼缘深度 cutZ' } },
+      { id: 'flange-bottom-right', name: '翼缘右底面 (Flange Bot Right)', type: 'plane', normal: [0, 0, -1], origin: [0, 0, cutZ], u: [1, 0, 0], v: [0, -1, 0], centerPoint: [sx - cutX / 2, sy / 2, cutZ], paramBinding: { param: 'extraParams', key: 'cutZ', sign: 1, description: '调整翼缘深度 cutZ' } },
+      { id: 'bottom-web', name: '腹板底面 (Bottom Web)', type: 'plane', normal: [0, 0, -1], origin: [0, 0, 0], u: [1, 0, 0], v: [0, -1, 0], centerPoint: [sx / 2, sy / 2, 0], paramBinding: { param: 'dimensions', key: 'sz', sign: -1, description: '调整基体高度 Lz' } },
+      { id: 'front', name: '前面 (Front)', type: 'plane', normal: [0, -1, 0], origin: [0, 0, 0], u: [1, 0, 0], v: [0, 0, 1], centerPoint: [sx / 2, 0, sz / 2], paramBinding: { param: 'dimensions', key: 'sy', sign: -1, description: '调整基体宽度 Ly' } },
+      { id: 'back', name: '后面 (Back)', type: 'plane', normal: [0, 1, 0], origin: [0, sy, 0], u: [-1, 0, 0], v: [0, 0, 1], centerPoint: [sx / 2, sy, sz / 2], paramBinding: { param: 'dimensions', key: 'sy', sign: 1, description: '调整基体宽度 Ly' } },
+      { id: 'left-flange', name: '翼缘左面 (Left Flange)', type: 'plane', normal: [-1, 0, 0], origin: [0, 0, 0], u: [0, -1, 0], v: [0, 0, 1], centerPoint: [0, sy / 2, sz - (sz - cutZ) / 2], paramBinding: { param: 'dimensions', key: 'sx', sign: -1, description: '调整基体长度 Lx' } },
+      { id: 'right-flange', name: '翼缘右面 (Right Flange)', type: 'plane', normal: [1, 0, 0], origin: [sx, 0, 0], u: [0, 1, 0], v: [0, 0, 1], centerPoint: [sx, sy / 2, sz - (sz - cutZ) / 2], paramBinding: { param: 'dimensions', key: 'sx', sign: 1, description: '调整基体长度 Lx' } },
+      { id: 'left-web', name: '腹板左面 (Left Web)', type: 'plane', normal: [-1, 0, 0], origin: [cutX, 0, 0], u: [0, -1, 0], v: [0, 0, 1], centerPoint: [cutX, sy / 2, cutZ / 2], paramBinding: { param: 'extraParams', key: 'cutX', sign: -1, description: '调整腹板宽度 cutX' } },
+      { id: 'right-web', name: '腹板右面 (Right Web)', type: 'plane', normal: [1, 0, 0], origin: [sx - cutX, 0, 0], u: [0, 1, 0], v: [0, 0, 1], centerPoint: [sx - cutX, sy / 2, cutZ / 2], paramBinding: { param: 'extraParams', key: 'cutX', sign: -1, description: '调整腹板宽度 cutX' } }
+    ]
+  }
+
+  if (template === 'cross-shape') {
+    const cutX = extraParams.cutX ?? sx * 0.25
+    const cutZ = extraParams.cutZ ?? sz * 0.25
+    return [
+      { id: 'top-center', name: '顶部中心面 (Top Center)', type: 'plane', normal: [0, 0, 1], origin: [0, 0, sz], u: [1, 0, 0], v: [0, 1, 0], centerPoint: [sx / 2, sy / 2, sz], paramBinding: { param: 'dimensions', key: 'sz', sign: 1, description: '调整基体高度 Lz' } },
+      { id: 'bottom-center', name: '底部中心面 (Bottom Center)', type: 'plane', normal: [0, 0, -1], origin: [0, 0, 0], u: [1, 0, 0], v: [0, -1, 0], centerPoint: [sx / 2, sy / 2, 0], paramBinding: { param: 'dimensions', key: 'sz', sign: -1, description: '调整基体高度 Lz' } },
+      { id: 'left-center', name: '左侧中心面 (Left Center)', type: 'plane', normal: [-1, 0, 0], origin: [0, 0, 0], u: [0, -1, 0], v: [0, 0, 1], centerPoint: [0, sy / 2, sz / 2], paramBinding: { param: 'dimensions', key: 'sx', sign: -1, description: '调整基体长度 Lx' } },
+      { id: 'right-center', name: '右侧中心面 (Right Center)', type: 'plane', normal: [1, 0, 0], origin: [sx, 0, 0], u: [0, 1, 0], v: [0, 0, 1], centerPoint: [sx, sy / 2, sz / 2], paramBinding: { param: 'dimensions', key: 'sx', sign: 1, description: '调整基体长度 Lx' } },
+      { id: 'front', name: '前面 (Front)', type: 'plane', normal: [0, -1, 0], origin: [0, 0, 0], u: [1, 0, 0], v: [0, 0, 1], centerPoint: [sx / 2, 0, sz / 2], paramBinding: { param: 'dimensions', key: 'sy', sign: -1, description: '调整基体宽度 Ly' } },
+      { id: 'back', name: '后面 (Back)', type: 'plane', normal: [0, 1, 0], origin: [0, sy, 0], u: [-1, 0, 0], v: [0, 0, 1], centerPoint: [sx / 2, sy, sz / 2], paramBinding: { param: 'dimensions', key: 'sy', sign: 1, description: '调整基体宽度 Ly' } },
+      { id: 'top-left-down', name: '左上凹槽底面 (Top Left Down)', type: 'plane', normal: [0, 0, -1], origin: [0, 0, sz - cutZ], u: [1, 0, 0], v: [0, -1, 0], centerPoint: [cutX / 2, sy / 2, sz - cutZ], paramBinding: { param: 'extraParams', key: 'cutZ', sign: 1, description: '调整切口深度 cutZ' } },
+      { id: 'top-left-wall', name: '左上凹槽竖面 (Top Left Wall)', type: 'plane', normal: [1, 0, 0], origin: [cutX, 0, 0], u: [0, 1, 0], v: [0, 0, 1], centerPoint: [cutX, sy / 2, sz - cutZ / 2], paramBinding: { param: 'extraParams', key: 'cutX', sign: -1, description: '调整切口宽度 cutX' } },
+      { id: 'top-right-down', name: '右上凹槽底面 (Top Right Down)', type: 'plane', normal: [0, 0, -1], origin: [0, 0, sz - cutZ], u: [1, 0, 0], v: [0, -1, 0], centerPoint: [sx - cutX / 2, sy / 2, sz - cutZ], paramBinding: { param: 'extraParams', key: 'cutZ', sign: 1, description: '调整切口深度 cutZ' } },
+      { id: 'top-right-wall', name: '右上凹槽竖面 (Top Right Wall)', type: 'plane', normal: [-1, 0, 0], origin: [sx - cutX, 0, 0], u: [0, -1, 0], v: [0, 0, 1], centerPoint: [sx - cutX, sy / 2, sz - cutZ / 2], paramBinding: { param: 'extraParams', key: 'cutX', sign: 1, description: '调整切口宽度 cutX' } },
+      { id: 'bot-left-up', name: '左下凹槽顶面 (Bot Left Up)', type: 'plane', normal: [0, 0, 1], origin: [0, 0, cutZ], u: [1, 0, 0], v: [0, 1, 0], centerPoint: [cutX / 2, sy / 2, cutZ], paramBinding: { param: 'extraParams', key: 'cutZ', sign: 1, description: '调整切口深度 cutZ' } },
+      { id: 'bot-left-wall', name: '左下凹槽竖面 (Bot Left Wall)', type: 'plane', normal: [1, 0, 0], origin: [cutX, 0, 0], u: [0, 1, 0], v: [0, 0, 1], centerPoint: [cutX, sy / 2, cutZ / 2], paramBinding: { param: 'extraParams', key: 'cutX', sign: -1, description: '调整切口宽度 cutX' } },
+      { id: 'bot-right-up', name: '右下凹槽顶面 (Bot Right Up)', type: 'plane', normal: [0, 0, 1], origin: [sx - cutX, 0, cutZ], u: [1, 0, 0], v: [0, 1, 0], centerPoint: [sx - cutX / 2, sy / 2, cutZ], paramBinding: { param: 'extraParams', key: 'cutZ', sign: 1, description: '调整切口深度 cutZ' } },
+      { id: 'bot-right-wall', name: '右下凹槽竖面 (Bot Right Wall)', type: 'plane', normal: [-1, 0, 0], origin: [sx - cutX, 0, 0], u: [0, -1, 0], v: [0, 0, 1], centerPoint: [sx - cutX, sy / 2, cutZ / 2], paramBinding: { param: 'extraParams', key: 'cutX', sign: 1, description: '调整切口宽度 cutX' } }
+    ]
+  }
+
+  return [
+    { id: 'top', name: '顶面 (Top)', type: 'plane', normal: [0, 0, 1], origin: [0, 0, sz], u: [1, 0, 0], v: [0, 1, 0], centerPoint: [sx / 2, sy / 2, sz], paramBinding: { param: 'dimensions', key: 'sz', sign: 1, description: '调整基体高度 Lz' } },
+    { id: 'bottom', name: '底面 (Bottom)', type: 'plane', normal: [0, 0, -1], origin: [0, 0, 0], u: [1, 0, 0], v: [0, -1, 0], centerPoint: [sx / 2, sy / 2, 0], paramBinding: { param: 'dimensions', key: 'sz', sign: -1, description: '调整基体高度 Lz' } },
+    { id: 'front', name: '前面 (Front)', type: 'plane', normal: [0, -1, 0], origin: [0, 0, 0], u: [1, 0, 0], v: [0, 0, 1], centerPoint: [sx / 2, 0, sz / 2], paramBinding: { param: 'dimensions', key: 'sy', sign: -1, description: '调整基体宽度 Ly' } },
+    { id: 'back', name: '后面 (Back)', type: 'plane', normal: [0, 1, 0], origin: [0, sy, 0], u: [-1, 0, 0], v: [0, 0, 1], centerPoint: [sx / 2, sy, sz / 2], paramBinding: { param: 'dimensions', key: 'sy', sign: 1, description: '调整基体宽度 Ly' } },
+    { id: 'left', name: '左面 (Left)', type: 'plane', normal: [-1, 0, 0], origin: [0, 0, 0], u: [0, -1, 0], v: [0, 0, 1], centerPoint: [0, sy / 2, sz / 2], paramBinding: { param: 'dimensions', key: 'sx', sign: -1, description: '调整基体长度 Lx' } },
+    { id: 'right', name: '右面 (Right)', type: 'plane', normal: [1, 0, 0], origin: [sx, 0, 0], u: [0, 1, 0], v: [0, 0, 1], centerPoint: [sx, sy / 2, sz / 2], paramBinding: { param: 'dimensions', key: 'sx', sign: 1, description: '调整基体长度 Lx' } }
+  ]
+}
+
+export function getFacesForTemplate(
+  template?: BaseBodyTemplate,
+  dimensions?: [number, number, number],
+  extraParams?: Record<string, number>
+): BaseFaceDefinition[] {
+  return computeTemplateFaces(template || 'box', dimensions, extraParams)
 }
 
 export function getBaseBodyIcon(body: BaseBodyConfig): string {
@@ -301,6 +454,8 @@ export function getBaseBodyIcon(body: BaseBodyConfig): string {
       return 'LBlock.svg'
     case 't-shape':
       return 'TBlock.svg'
+    case 'cross-shape':
+      return 'CrossBlock.svg'
     case 'box':
     default:
       return 'Block.svg'
@@ -334,10 +489,11 @@ export function createDefaultProject(projectName: string = '未命名工程'): S
         color: '#a0a4a8',
         metalness: 0.55,
         roughness: 0.35,
-        opacity: 0.0
+        opacity: 0.0,
+        density: 7.85
       },
       stepAssetRef: null,
-      faces: [...STANDARD_BOX_FACES]
+      faces: computeTemplateFaces('box', [120, 100, 80])
     },
     activeSchemeId: defaultSchemeId,
     schemes: [

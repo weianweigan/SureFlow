@@ -8,7 +8,7 @@ import { usePlacementStore } from '../../model/placementStore'
 import { useDesignStore } from '../../model/designStore'
 import { useLibraryStore } from '../../../library/viewmodel/libraryStore'
 import { resolveAllTemplateHoles } from '../../geometry/templateHoleResolver'
-import { detectBoxFace, getBoxFaceBasis, worldToLocalPoint } from '@shared/design/faceMath'
+import { detectBaseBodyFace, getBoxFaceBasis, worldToLocalPoint } from '@shared/design/faceMath'
 import type { CavityInstance, CavityGroup } from '@shared/design/types'
 
 interface PlacementControllerProps {
@@ -106,7 +106,7 @@ export const PlacementController: FC<PlacementControllerProps> = ({
     const body = project?.doc.baseBody
     let point: THREE.Vector3 | null = null
     let faceId: string | null = null
-    if (!body?.template || body.template === 'box') {
+    if (!body?.template || (body.type !== 'step' && body.template === 'box')) {
       point = raycasterRef.current.ray.intersectBox(new THREE.Box3(new THREE.Vector3(), new THREE.Vector3(...dimensions)), new THREE.Vector3())
       if (point) {
         const distances = [Math.abs(point.z-dimensions[2]),Math.abs(point.z),Math.abs(point.y),Math.abs(point.y-dimensions[1]),Math.abs(point.x),Math.abs(point.x-dimensions[0])]
@@ -115,10 +115,13 @@ export const PlacementController: FC<PlacementControllerProps> = ({
     } else {
       const hits = raycasterRef.current.intersectObjects(scene.children,true)
       const hit = hits.find(i=>i.object.userData.selectionMesh && !i.object.userData.cavityId && i.face)
-      if (hit?.face) { point=hit.point;faceId=detectBoxFace(hit.face.normal.clone().transformDirection(hit.object.matrixWorld),point,dimensions) }
+      if (hit?.face) {
+        point=hit.point
+        faceId=detectBaseBodyFace(hit.face.normal.clone().transformDirection(hit.object.matrixWorld),point,body)
+      }
     }
     if (point && faceId) {
-      const basis=getBoxFaceBasis(faceId,dimensions)
+      const basis=getBoxFaceBasis(faceId,dimensions,body)
       const local=worldToLocalPoint(basis,point.toArray() as Vec3)
       const template=usePlacementStore.getState().template
       const first=template?resolveAllTemplateHoles(template,libraryDoc)[0]:undefined

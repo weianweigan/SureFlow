@@ -6,6 +6,8 @@
  * - 正交轴向 (U, V, W) 严格满足右手定则 U × V = W
  */
 
+import { computeTemplateFaces, type BaseBodyConfig } from './types'
+
 export interface FaceBasis {
   id: string
   origin: [number, number, number]
@@ -15,15 +17,50 @@ export interface FaceBasis {
 }
 
 /**
- * 根据长方体尺寸与面 ID 计算标准面基准坐标系
+ * 根据基体配置与面 ID 计算面基准坐标系（World Origin Projection Method）
+ * 严格覆盖长方体、L型、T型凹槽台阶面以及 STEP 导入面
  */
-export function getBoxFaceBasis(
+export function getBaseFaceBasis(
   faceId: string,
-  dimensions: [number, number, number]
+  dimensions: [number, number, number],
+  baseBody?: Partial<BaseBodyConfig>
 ): FaceBasis {
   const [sx, sy, sz] = dimensions
   const fid = (faceId || '').toLowerCase()
+  const template = baseBody?.template || 'box'
+  const extraParams = baseBody?.extraParams || {}
 
+  // 1. 若 baseBody.faces 中显式定义了该面并且包含完整几何信息 (如 STEP 导入面或带自定义原点的面)
+  if (baseBody?.faces) {
+    const matched = baseBody.faces.find((f) => f.id.toLowerCase() === fid)
+    if (matched) {
+      if (matched.origin && matched.u && matched.v) {
+        const w = matched.normal
+        return {
+          id: faceId,
+          origin: [matched.origin[0], matched.origin[1], matched.origin[2]],
+          u: [matched.u[0], matched.u[1], matched.u[2]],
+          v: [matched.v[0], matched.v[1], matched.v[2]],
+          w: [w[0], w[1], w[2]]
+        }
+      }
+    }
+  }
+
+  // 2. 从模板面集合自动匹配（支持 box、l-shape、t-shape、cross-shape 等所有模板）
+  const templateFaces = computeTemplateFaces(template, dimensions, extraParams)
+  const matchedFromTemplate = templateFaces.find((f) => f.id.toLowerCase() === fid)
+  if (matchedFromTemplate?.origin && matchedFromTemplate.u && matchedFromTemplate.v) {
+    return {
+      id: faceId,
+      origin: [matchedFromTemplate.origin[0], matchedFromTemplate.origin[1], matchedFromTemplate.origin[2]],
+      u: [matchedFromTemplate.u[0], matchedFromTemplate.u[1], matchedFromTemplate.u[2]],
+      v: [matchedFromTemplate.v[0], matchedFromTemplate.v[1], matchedFromTemplate.v[2]],
+      w: [matchedFromTemplate.normal[0], matchedFromTemplate.normal[1], matchedFromTemplate.normal[2]]
+    }
+  }
+
+  // 4. 标准长方体与通用正交投影面
   if (fid.includes('top') || fid === '+z') {
     return {
       id: faceId,
@@ -44,7 +81,7 @@ export function getBoxFaceBasis(
     }
   }
 
-  if (fid.includes('front') || fid.includes('wall') || fid === '-y') {
+  if (fid.includes('front') || fid === '-y') {
     return {
       id: faceId,
       origin: [0, 0, 0],
@@ -84,6 +121,34 @@ export function getBoxFaceBasis(
     }
   }
 
+  // 5. 若是 STEP 或自定义面，但在 baseBody.faces 中有法向
+  if (baseBody?.faces) {
+    const matched = baseBody.faces.find((f) => f.id.toLowerCase() === fid)
+    if (matched) {
+      const [nx, ny, nz] = matched.normal
+      const w: [number, number, number] = [nx, ny, nz]
+      let u: [number, number, number]
+      let v: [number, number, number]
+      if (Math.abs(nz) > 0.8) {
+        u = [1, 0, 0]
+        v = nz > 0 ? [0, 1, 0] : [0, -1, 0]
+      } else if (Math.abs(ny) > 0.8) {
+        u = [1, 0, 0]
+        v = [0, 0, 1]
+      } else {
+        u = [0, 1, 0]
+        v = [0, 0, 1]
+      }
+      return {
+        id: faceId,
+        origin: matched.origin ? [...matched.origin] : [0, 0, 0],
+        u,
+        v,
+        w
+      }
+    }
+  }
+
   return {
     id: faceId,
     origin: [0, 0, sz],
@@ -94,27 +159,218 @@ export function getBoxFaceBasis(
 }
 
 /**
- * 根据法向量与交点坐标推断所属的长方体基准面 ID
+ * 保持向后兼容的长方体面基准坐标系函数（内部调用全功能 getBaseFaceBasis）
+ */
+export function getBoxFaceBasis(
+  faceId: string,
+  dimensions: [number, number, number],
+  baseBody?: Partial<BaseBodyConfig>
+): FaceBasis {
+  return getBaseFaceBasis(faceId, dimensions, baseBody)
+}
+
+/**
+ * 统一根据法向量与交点坐标推断所属基体面 ID
+ * 支持长方体、L型、T型以及 STEP 自定义形状面
+ */
+export function detectBaseBodyFace(
+  normal: { x: number; y: number; z: number },
+  point?: { x: number; y: number; z: number },
+  baseBody?: Partial<BaseBodyConfig> | [number, number, number],
+  dimensionsFallback?: [number, number, number]
+): string | null {
+  let dims: [number, number, number] = [120, 100, 80]
+  let body: Partial<BaseBodyConfig> | undefined
+
+  if (Array.isArray(baseBody)) {
+    dims = baseBody
+  } else if (baseBody) {
+    body = baseBody
+    if (baseBody.dimensions) dims = baseBody.dimensions
+  } else if (dimensionsFallback) {
+    dims = dimensionsFallback
+  }
+
+  const [sx, , sz] = dims
+  const px = point?.x ?? 0
+  const py = point?.y ?? 0
+  const pz = point?.z ?? 0
+
+  const nx = normal.x
+  const ny = normal.y
+  const nz = normal.z
+
+  const ax = Math.abs(nx)
+  const ay = Math.abs(ny)
+  const az = Math.abs(nz)
+
+  const template = body?.template || 'box'
+  const extraParams = body?.extraParams || {}
+
+  // 1. 统一 B-Rep 实体面几何拓扑匹配（无论是 Box、L型、T型 还是 STEP，只要具有真实实体面定义）
+  if (body?.faces && body.faces.length > 0 && (body.type === 'step' || body.faces.some((f) => f.origin !== undefined))) {
+    let bestFaceId: string | null = null
+    let minScore = Infinity
+
+    for (const f of body.faces) {
+      const [fnx, fny, fnz] = f.normal
+      const dot = nx * fnx + ny * fny + nz * fnz
+      if (dot > 0.8) {
+        let planeDist = 0
+        if (point && f.origin) {
+          planeDist = Math.abs((px - f.origin[0]) * fnx + (py - f.origin[1]) * fny + (pz - f.origin[2]) * fnz)
+        }
+        if (planeDist < 5.0) {
+          let centerDist = 0
+          if (point && f.centerPoint) {
+            centerDist = Math.hypot(px - f.centerPoint[0], py - f.centerPoint[1], pz - f.centerPoint[2])
+          }
+          const score = (1 - dot) * 10 + planeDist + centerDist * 0.001
+          if (score < minScore) {
+            minScore = score
+            bestFaceId = f.id
+          }
+        }
+      }
+    }
+    if (bestFaceId) return bestFaceId
+  }
+
+  // 2. L 型基体形状
+  if (template === 'l-shape') {
+    const cutX = extraParams.cutX ?? sx * 0.4
+    const cutZ = extraParams.cutZ ?? sz * 0.5
+    const stepSplitX = sx - cutX
+    const stepSplitZ = sz - cutZ
+
+    if (az >= ax && az >= ay && az > 0.3) {
+      if (nz > 0) {
+        // +Z 法向：区分主顶面与台阶顶面
+        // 台阶顶面区域：X >= stepSplitX - 1.0, 且 Z 处于 stepSplitZ 附近 (Z < sz - 1.0)
+        if (px >= stepSplitX - 1.0 && pz < sz - 1.0) {
+          return 'top-step'
+        }
+        return 'top-main'
+      }
+      return 'bottom'
+    }
+
+    if (ay >= ax && ay >= az && ay > 0.3) {
+      return ny > 0 ? 'back' : 'front-main'
+    }
+
+    if (ax >= ay && ax >= az && ax > 0.3) {
+      if (nx > 0) {
+        // +X 法向：区分阶梯竖面 (step-wall) 与右面 (right)
+        // 阶梯竖面位置在 X ≈ stepSplitX, 且 Z >= stepSplitZ - 1.0
+        if (px < sx - 1.0 && pz >= stepSplitZ - 1.0) {
+          return 'step-wall'
+        }
+        return 'right'
+      }
+      return 'left'
+    }
+  }
+
+  // 3. T 型基体形状
+  if (template === 't-shape') {
+    const cutX = extraParams.cutX ?? sx * 0.25
+    const cutZ = extraParams.cutZ ?? sz * 0.5
+    const leftSplitX = cutX
+    const rightSplitX = sx - cutX
+
+    if (az >= ax && az >= ay && az > 0.3) {
+      if (nz > 0) {
+        return 'top-flange'
+      }
+      // -Z 法向：区分翼缘左底面、翼缘右底面与腹板底面
+      if (pz > 1.0) {
+        if (px <= leftSplitX + 1.0) return 'flange-bottom-left'
+        if (px >= rightSplitX - 1.0) return 'flange-bottom-right'
+      }
+      return 'bottom-web'
+    }
+
+    if (ay >= ax && ay >= az && ay > 0.3) {
+      return ny > 0 ? 'back' : 'front'
+    }
+
+    if (ax >= ay && ax >= az && ax > 0.3) {
+      if (nx < 0) {
+        // -X 法向：区分翼缘左面与腹板左面
+        if (px > 1.0 && pz <= cutZ + 1.0) return 'left-web'
+        return 'left-flange'
+      }
+      // +X 法向：区分翼缘右面与腹板右面
+      if (px < sx - 1.0 && pz <= cutZ + 1.0) return 'right-web'
+      return 'right-flange'
+    }
+  }
+
+  // 4. 十字型基体形状
+  if (template === 'cross-shape') {
+    const cutX = extraParams.cutX ?? sx * 0.25
+    const cutZ = extraParams.cutZ ?? sz * 0.25
+
+    if (az >= ax && az >= ay && az > 0.3) {
+      if (nz > 0) {
+        if (pz <= cutZ + 1.0) {
+          if (px <= cutX + 1.0) return 'bot-left-up'
+          if (px >= sx - cutX - 1.0) return 'bot-right-up'
+        }
+        return 'top-center'
+      }
+      if (pz >= sz - cutZ - 1.0) {
+        if (px <= cutX + 1.0) return 'top-left-down'
+        if (px >= sx - cutX - 1.0) return 'top-right-down'
+      }
+      return 'bottom-center'
+    }
+
+    if (ay >= ax && ay >= az && ay > 0.3) {
+      return ny > 0 ? 'back' : 'front'
+    }
+
+    if (ax >= ay && ax >= az && ax > 0.3) {
+      if (nx > 0) {
+        if (px <= cutX + 1.0) {
+          if (pz >= sz - cutZ - 1.0) return 'top-left-wall'
+          if (pz <= cutZ + 1.0) return 'bot-left-wall'
+        }
+        return 'right-center'
+      }
+      if (px >= sx - cutX - 1.0) {
+        if (pz >= sz - cutZ - 1.0) return 'top-right-wall'
+        if (pz <= cutZ + 1.0) return 'bot-right-wall'
+      }
+      return 'left-center'
+    }
+  }
+
+  // 5. 标准长方体判定（保底）
+  if (az >= ax && az >= ay && az > 0.3) {
+    return nz > 0 ? 'top' : 'bottom'
+  }
+  if (ay >= ax && ay >= az && ay > 0.3) {
+    return ny > 0 ? 'back' : 'front'
+  }
+  if (ax >= ay && ax >= az && ax > 0.3) {
+    return nx > 0 ? 'right' : 'left'
+  }
+
+  return null
+}
+
+/**
+ * 兼容旧版的长方体面检测函数（内部调用全功能 detectBaseBodyFace）
  */
 export function detectBoxFace(
   normal: { x: number; y: number; z: number },
-  _point?: { x: number; y: number; z: number },
-  _dimensions?: [number, number, number]
+  point?: { x: number; y: number; z: number },
+  dimensions?: [number, number, number],
+  baseBody?: Partial<BaseBodyConfig>
 ): string | null {
-  const ax = Math.abs(normal.x)
-  const ay = Math.abs(normal.y)
-  const az = Math.abs(normal.z)
-
-  if (az >= ax && az >= ay && az > 0.3) {
-    return normal.z > 0 ? 'top' : 'bottom'
-  }
-  if (ay >= ax && ay >= az && ay > 0.3) {
-    return normal.y > 0 ? 'back' : 'front'
-  }
-  if (ax >= ay && ax >= az && ax > 0.3) {
-    return normal.x > 0 ? 'right' : 'left'
-  }
-  return null
+  return detectBaseBodyFace(normal, point, baseBody || dimensions, dimensions)
 }
 
 /**
@@ -254,3 +510,95 @@ export function getCavityWorldMatrix(
     worldMouth[0], worldMouth[1], worldMouth[2], 1
   ])
 }
+
+export type BoxViewPreset = 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right'
+
+/**
+ * 将任意格式的面 ID 映射为标准视角预设
+ */
+export function mapFaceIdToViewPreset(faceId?: string | null): BoxViewPreset | null {
+  if (!faceId) return null
+  const fid = faceId.toLowerCase()
+  if (fid.includes('top') || fid === '+z') return 'top'
+  if (fid.includes('bot') || fid === '-z') return 'bottom'
+  if (fid.includes('front') || fid.includes('wall') || fid === '-y') return 'front'
+  if (fid.includes('back') || fid === '+y') return 'back'
+  if (fid.includes('left') || fid === '-x') return 'left'
+  if (fid.includes('right') || fid === '+x') return 'right'
+  return null
+}
+
+export interface Vector3Like {
+  x: number
+  y: number
+  z: number
+}
+
+/**
+ * 根据相机朝向和基体尺寸，智能推断当前观察的面 / 观察投影面积最大的面
+ * @param cameraDirection 相机世界观察方向（视线前向向量，即从相机看向物体 target - cameraPos）
+ * @param dimensions 长方体基体尺寸 [sx, sy, sz]
+ */
+export function determineObservedFacePreset(
+  cameraDirection: Vector3Like,
+  dimensions: [number, number, number]
+): BoxViewPreset {
+  const [sx, sy, sz] = dimensions
+  const cLen = Math.hypot(cameraDirection.x, cameraDirection.y, cameraDirection.z) || 1
+  // 视线逆向量（从物体指向相机），归一化
+  const eye = {
+    x: -cameraDirection.x / cLen,
+    y: -cameraDirection.y / cLen,
+    z: -cameraDirection.z / cLen
+  }
+
+  const faces: Array<{
+    preset: BoxViewPreset
+    normal: { x: number; y: number; z: number }
+    area: number
+  }> = [
+    { preset: 'top', normal: { x: 0, y: 0, z: 1 }, area: sx * sy },
+    { preset: 'bottom', normal: { x: 0, y: 0, z: -1 }, area: sx * sy },
+    { preset: 'front', normal: { x: 0, y: -1, z: 0 }, area: sx * sz },
+    { preset: 'back', normal: { x: 0, y: 1, z: 0 }, area: sx * sz },
+    { preset: 'left', normal: { x: -1, y: 0, z: 0 }, area: sy * sz },
+    { preset: 'right', normal: { x: 1, y: 0, z: 0 }, area: sy * sz }
+  ]
+
+  let mostDirectFace = faces[0]
+  let maxCos = -Infinity
+
+  let maxAreaFace = faces[0]
+  let maxProjectedArea = -Infinity
+
+  for (const f of faces) {
+    const cosTheta = f.normal.x * eye.x + f.normal.y * eye.y + f.normal.z * eye.z
+    if (cosTheta > maxCos) {
+      maxCos = cosTheta
+      mostDirectFace = f
+    }
+
+    if (cosTheta > 0.0001) {
+      const projArea = f.area * cosTheta
+      if (projArea > maxProjectedArea) {
+        maxProjectedArea = projArea
+        maxAreaFace = f
+      }
+    }
+  }
+
+  // 判定策略：
+  // 1. 若相机对某个面的朝向非常明确 (cosTheta > 0.82，夹角约 < 35°)，直接优先正视该面；
+  // 2. 否则处于倾斜/等轴侧/多面可见时，优先选择在屏幕上观察投影面积最大的面；
+  // 3. 兜底返回正对度最高的面。
+  if (maxCos > 0.82) {
+    return mostDirectFace.preset
+  }
+
+  if (maxProjectedArea > 0) {
+    return maxAreaFace.preset
+  }
+
+  return mostDirectFace.preset
+}
+

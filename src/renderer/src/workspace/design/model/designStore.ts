@@ -14,6 +14,7 @@ import {
   getFacesForTemplate,
   type SfbProject,
   type BaseBodyTemplate,
+  type BaseFaceDefinition,
   type CavityInstance,
   type CavityGroup,
   type MaterialConfig,
@@ -207,8 +208,30 @@ export interface DesignState {
 
   /** 修改基体模板形状 (box / l-shape / t-shape) */
   setBaseTemplate: (projectId: string, template: BaseBodyTemplate) => void
+  /** 修改基体类型 (template / step) */
+  setBaseType: (projectId: string, type: 'template' | 'step') => void
+  /** 导入设置外部 STEP 基体模型 */
+  setBaseStepModel: (
+    projectId: string,
+    payload: {
+      stepContent: string
+      stepFileName: string
+      dimensions: [number, number, number]
+      faces?: BaseFaceDefinition[]
+      stepMesh?: {
+        positions: Float32Array | number[]
+        indices: Uint32Array | number[]
+        normals?: Float32Array | number[]
+        edgePositions?: Float32Array | number[]
+      }
+    }
+  ) => void
+  /** 修改基体额外参数 (如 L型/T型切除参数) */
+  setBaseExtraParams: (projectId: string, params: Record<string, number>) => void
   /** 修改基体长方体尺寸 [Lx, Ly, Lz] */
   setBaseDimensions: (projectId: string, dimensions: [number, number, number]) => void
+  /** 执行面厚度推拉 (沿法向增厚或减薄) */
+  extrudeFace: (projectId: string, faceId: string, delta: number, cavitiesFollow?: boolean) => void
   /** 修改基体材质（完整配置） */
   setBaseMaterial: (projectId: string, config: MaterialConfig) => void
   /** 修改基体材质单属性 */
@@ -515,7 +538,7 @@ export const useDesignStore = create<DesignState>((set, get) => ({
           pushHistory(p)
           p.doc.baseBody.type = 'template'
           p.doc.baseBody.template = template
-          const newFaces = getFacesForTemplate(template)
+          const newFaces = getFacesForTemplate(template, p.doc.baseBody.dimensions, p.doc.baseBody.extraParams)
           p.doc.baseBody.faces = newFaces
 
           // 悬空孔检测：遍历所有方案的孔腔，若 faceId 不在新模板面中则标记 dangling
@@ -535,6 +558,57 @@ export const useDesignStore = create<DesignState>((set, get) => ({
     )
   },
 
+  setBaseType: (projectId, type) => {
+    set(
+      produce((state: DesignState) => {
+        const p = state.projects[projectId]
+        if (p) {
+          pushHistory(p)
+          p.doc.baseBody.type = type
+        }
+      })
+    )
+  },
+
+  setBaseStepModel: (projectId, payload) => {
+    set(
+      produce((state: DesignState) => {
+        const p = state.projects[projectId]
+        if (p) {
+          pushHistory(p)
+          p.doc.baseBody.type = 'step'
+          p.doc.baseBody.stepContent = payload.stepContent
+          p.doc.baseBody.stepFileName = payload.stepFileName
+          p.doc.baseBody.dimensions = [...payload.dimensions]
+          if (payload.faces && payload.faces.length > 0) {
+            p.doc.baseBody.faces = payload.faces
+          }
+          if (payload.stepMesh) {
+            p.doc.baseBody.stepMesh = payload.stepMesh
+          }
+        }
+      })
+    )
+  },
+
+  setBaseExtraParams: (projectId, params) => {
+    set(
+      produce((state: DesignState) => {
+        const p = state.projects[projectId]
+        if (p) {
+          pushHistory(p)
+          p.doc.baseBody.extraParams = {
+            ...(p.doc.baseBody.extraParams || {}),
+            ...params
+          }
+          if (p.doc.baseBody.type !== 'step') {
+            p.doc.baseBody.faces = getFacesForTemplate(p.doc.baseBody.template, p.doc.baseBody.dimensions, p.doc.baseBody.extraParams)
+          }
+        }
+      })
+    )
+  },
+
   setBaseDimensions: (projectId, dimensions) => {
     set(
       produce((state: DesignState) => {
@@ -542,6 +616,64 @@ export const useDesignStore = create<DesignState>((set, get) => ({
         if (p) {
           pushHistory(p)
           p.doc.baseBody.dimensions = [...dimensions]
+          if (p.doc.baseBody.type !== 'step') {
+            p.doc.baseBody.faces = getFacesForTemplate(p.doc.baseBody.template, dimensions, p.doc.baseBody.extraParams)
+          }
+        }
+      })
+    )
+  },
+
+  extrudeFace: (projectId, faceId, delta, cavitiesFollow = true) => {
+    if (delta === 0) return
+    set(
+      produce((state: DesignState) => {
+        const p = state.projects[projectId]
+        if (!p) return
+        pushHistory(p)
+
+        const body = p.doc.baseBody
+        const face = body.faces.find((f) => f.id === faceId)
+        const binding = face?.paramBinding
+
+        if (binding) {
+          if (binding.param === 'dimensions') {
+            const [sx, sy, sz] = body.dimensions
+            let newSx = sx, newSy = sy, newSz = sz
+            const step = delta * binding.sign
+            if (binding.key === 'sx') newSx = Math.max(10, sx + step)
+            else if (binding.key === 'sy') newSy = Math.max(10, sy + step)
+            else if (binding.key === 'sz') newSz = Math.max(10, sz + step)
+            body.dimensions = [newSx, newSy, newSz]
+          } else if (binding.param === 'extraParams') {
+            const extra = { ...(body.extraParams || {}) }
+            const curVal = extra[binding.key] ?? (binding.key === 'cutX' ? body.dimensions[0] * 0.4 : body.dimensions[2] * 0.5)
+            const step = delta * binding.sign
+            extra[binding.key] = Math.max(5, curVal + step)
+            body.extraParams = extra
+          }
+        } else if (face?.normal) {
+          const normal = face.normal
+          let [newSx, newSy, newSz] = body.dimensions
+          if (Math.abs(normal[0]) > 0.8) newSx = Math.max(10, newSx + delta)
+          else if (Math.abs(normal[1]) > 0.8) newSy = Math.max(10, newSy + delta)
+          else if (Math.abs(normal[2]) > 0.8) newSz = Math.max(10, newSz + delta)
+          body.dimensions = [newSx, newSy, newSz]
+        }
+
+        if (body.type !== 'step') {
+          body.faces = getFacesForTemplate(body.template, body.dimensions, body.extraParams)
+        }
+
+        // 若取消勾选孔腔跟随移动，则调整孔腔的 depthOffset 保持其绝对世界坐标不变
+        if (!cavitiesFollow) {
+          for (const scheme of p.doc.schemes) {
+            for (const cav of scheme.cavities) {
+              if (cav.faceId === faceId) {
+                cav.depthOffset = (cav.depthOffset || 0) + delta
+              }
+            }
+          }
         }
       })
     )
@@ -990,9 +1122,9 @@ export const useDesignStore = create<DesignState>((set, get) => ({
 
         if (mode === 'project') {
           const dims = p.doc.baseBody.dimensions
-          const oldBasis = getBoxFaceBasis(oldFaceId, dims)
+          const oldBasis = getBoxFaceBasis(oldFaceId, dims, p.doc.baseBody)
           const worldCenter = localToWorldPoint(oldBasis, centerU, centerV, 0)
-          const newBasis = getBoxFaceBasis(newFaceId, dims)
+          const newBasis = getBoxFaceBasis(newFaceId, dims, p.doc.baseBody)
           const newLocal = worldToLocalPoint(newBasis, worldCenter)
           targetCenterU = Math.round(newLocal.u * 10) / 10
           targetCenterV = Math.round(newLocal.v * 10) / 10

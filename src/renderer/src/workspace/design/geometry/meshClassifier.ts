@@ -1,6 +1,6 @@
 import * as THREE from 'three'
-import { getBoxFaceBasis, localToWorldPoint } from '@shared/design/faceMath'
-import type { CavityInstance } from '@shared/design/types'
+import { getBoxFaceBasis, localToWorldPoint, detectBaseBodyFace } from '@shared/design/faceMath'
+import type { CavityInstance, BaseBodyConfig } from '@shared/design/types'
 
 export type TriangleTag =
   | { type: 'face'; id: string }
@@ -95,16 +95,16 @@ export function classifyAndGroupCsgGeometry(
   selectedCavityIdOrIds?: string | string[] | null,
   selectedFaceId?: string | null,
   faceTags?: Uint32Array,
-  numericIdToInstanceId?: Record<number, string>
+  numericIdToInstanceId?: Record<number, string>,
+  baseBody?: Partial<BaseBodyConfig>
 ): ClassifiedMeshResult {
   const selectedCavityIdSet = normalizeSelectedCavityIds(selectedCavityIdOrIds)
 
-  const [sx, sy, sz] = dimensions
   const numTri = rawIndices.length / 3
 
   // 预先计算各孔腔的世界中心轴线参数（孔口与打孔方向）
   const cavityRayData = cavities.map((cav) => {
-    const basis = getBoxFaceBasis(cav.faceId, dimensions)
+    const basis = getBoxFaceBasis(cav.faceId, dimensions, baseBody)
     const mouth = localToWorldPoint(basis, cav.u, cav.v, cav.depthOffset)
     const drillDir = [-basis.w[0], -basis.w[1], -basis.w[2]]
     return {
@@ -123,7 +123,6 @@ export function classifyAndGroupCsgGeometry(
   }
 
   const triMetas: TriMeta[] = []
-  const tol = 0.4 // 坐标贴面容差 (mm)
   const useFaceTags = faceTags != null && faceTags.length === numTri
 
   for (let t = 0; t < numTri; t++) {
@@ -136,15 +135,31 @@ export function classifyAndGroupCsgGeometry(
     const cy = (rawPositions[i0 * 3 + 1] + rawPositions[i1 * 3 + 1] + rawPositions[i2 * 3 + 1]) / 3
     const cz = (rawPositions[i0 * 3 + 2] + rawPositions[i1 * 3 + 2] + rawPositions[i2 * 3 + 2]) / 3
 
-    // 三角面元法向量
-    let nx = (rawNormals[i0 * 3] + rawNormals[i1 * 3] + rawNormals[i2 * 3]) / 3
-    let ny = (rawNormals[i0 * 3 + 1] + rawNormals[i1 * 3 + 1] + rawNormals[i2 * 3 + 1]) / 3
-    let nz = (rawNormals[i0 * 3 + 2] + rawNormals[i1 * 3 + 2] + rawNormals[i2 * 3 + 2]) / 3
+    // 三角面元几何法向量（由三角顶点坐标叉乘严格求值，消除共用顶点法向量平滑导致的平面法向偏角）
+    const ax = rawPositions[i1 * 3] - rawPositions[i0 * 3]
+    const ay = rawPositions[i1 * 3 + 1] - rawPositions[i0 * 3 + 1]
+    const az = rawPositions[i1 * 3 + 2] - rawPositions[i0 * 3 + 2]
+    const bx = rawPositions[i2 * 3] - rawPositions[i0 * 3]
+    const by = rawPositions[i2 * 3 + 1] - rawPositions[i0 * 3 + 1]
+    const bz = rawPositions[i2 * 3 + 2] - rawPositions[i0 * 3 + 2]
+    let nx = ay * bz - az * by
+    let ny = az * bx - ax * bz
+    let nz = ax * by - ay * bx
     const len = Math.hypot(nx, ny, nz)
     if (len > 1e-6) {
       nx /= len
       ny /= len
       nz /= len
+    } else {
+      nx = (rawNormals[i0 * 3] + rawNormals[i1 * 3] + rawNormals[i2 * 3]) / 3
+      ny = (rawNormals[i0 * 3 + 1] + rawNormals[i1 * 3 + 1] + rawNormals[i2 * 3 + 1]) / 3
+      nz = (rawNormals[i0 * 3 + 2] + rawNormals[i1 * 3 + 2] + rawNormals[i2 * 3 + 2]) / 3
+      const vlen = Math.hypot(nx, ny, nz)
+      if (vlen > 1e-6) {
+        nx /= vlen
+        ny /= vlen
+        nz /= vlen
+      }
     }
 
     if (useFaceTags) {
@@ -182,20 +197,12 @@ export function classifyAndGroupCsgGeometry(
         })
       } else {
         // tagVal === 0: 严格属于基体外表面
-        let faceId: string | null = null
-        if (Math.abs(cz - sz) < tol && nz > 0.4) {
-          faceId = 'top'
-        } else if (Math.abs(cz) < tol && nz < -0.4) {
-          faceId = 'bottom'
-        } else if (Math.abs(cy) < tol && ny < -0.4) {
-          faceId = 'front'
-        } else if (Math.abs(cy - sy) < tol && ny > 0.4) {
-          faceId = 'back'
-        } else if (Math.abs(cx) < tol && nx < -0.4) {
-          faceId = 'left'
-        } else if (Math.abs(cx - sx) < tol && nx > 0.4) {
-          faceId = 'right'
-        }
+        const faceId = detectBaseBodyFace(
+          { x: nx, y: ny, z: nz },
+          { x: cx, y: cy, z: cz },
+          baseBody || dimensions,
+          dimensions
+        )
 
         const isSelectedFace = selectedFaceId != null && faceId != null && faceId === selectedFaceId
         triMetas.push({
@@ -208,20 +215,12 @@ export function classifyAndGroupCsgGeometry(
       }
     } else {
       // 回退几何启发式判断 (当缺少 faceTags 时)
-      let faceId: string | null = null
-      if (Math.abs(cz - sz) < tol && nz > 0.4) {
-        faceId = 'top'
-      } else if (Math.abs(cz) < tol && nz < -0.4) {
-        faceId = 'bottom'
-      } else if (Math.abs(cy) < tol && ny < -0.4) {
-        faceId = 'front'
-      } else if (Math.abs(cy - sy) < tol && ny > 0.4) {
-        faceId = 'back'
-      } else if (Math.abs(cx) < tol && nx < -0.4) {
-        faceId = 'left'
-      } else if (Math.abs(cx - sx) < tol && nx > 0.4) {
-        faceId = 'right'
-      }
+      const faceId = detectBaseBodyFace(
+        { x: nx, y: ny, z: nz },
+        { x: cx, y: cy, z: cz },
+        baseBody || dimensions,
+        dimensions
+      )
 
       // 检查该三角面元是否落在某个孔腔孔口内（防止入口倒角/阶梯台阶被误判为外表面）
       let insideMouth = false

@@ -15,9 +15,8 @@ import {
 } from '../../model/designStore'
 import {
   getBoxFaceBasis,
-  detectBoxFace,
+  detectBaseBodyFace,
   worldToLocalPoint,
-  localToWorldPoint,
   type FaceBasis
 } from '@shared/design/faceMath'
 import type { CavityInstance, CavityGroup } from '@shared/design/types'
@@ -391,7 +390,7 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
   const centerY=anchorCavity?.v??anchorGroup?.v??defaultCenterY
   const referenceOptions=references.filter(r=>r.kind==='point'&&r.faceId===targetFaceId&&!targetCavities.some(c=>c.instanceId===r.ownerId))
   const chosenReference=referenceOptions.find(r=>r.id===referenceChoice)
-  const referenceLocal=chosenReference?worldToLocalPoint(getBoxFaceBasis(targetFaceId,dimensions),chosenReference.point):null
+  const referenceLocal=chosenReference?worldToLocalPoint(getBoxFaceBasis(targetFaceId,dimensions,session?.doc.baseBody),chosenReference.point):null
 
   useEffect(()=>{
     setDragAxis(null);setPreviewOffset(null);setRotatePreviewDeg(0)
@@ -477,8 +476,8 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
   // 当前有效宿主面与基准坐标系
   const currentFaceId = previewOffset?.targetFaceId || targetFaceId
   const basis = useMemo<FaceBasis>(() => {
-    return getBoxFaceBasis(currentFaceId, dimensions)
-  }, [currentFaceId, dimensions])
+    return getBoxFaceBasis(currentFaceId, dimensions, session?.doc.baseBody)
+  }, [currentFaceId, dimensions, session?.doc.baseBody])
 
   // 当前 Gizmo 局部坐标系旋转四元数（X->u, Y->v, Z->w）
   const orientationQuat = useMemo(() => {
@@ -681,7 +680,7 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
 
       // ── 1. 旋转手柄拖拽逻辑（支持顺时针/逆时针双向丝滑拖拽，90° 顺畅磁吸锁定，Shift 解除） ──
       if (startState.axis === 'rotate') {
-        const curBasis = getBoxFaceBasis(startState.startFaceId, dimensions)
+        const curBasis = getBoxFaceBasis(startState.startFaceId, dimensions, session?.doc.baseBody)
         const intersectPoint = new THREE.Vector3()
         if (raycaster.ray.intersectPlane(startState.startPlane, intersectPoint)) {
           const local = worldToLocalPoint(curBasis, [intersectPoint.x, intersectPoint.y, intersectPoint.z])
@@ -725,8 +724,81 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
       }
 
       // ── 2. 平移计算（基于初始点击点相对增量，彻底消除 Jump-on-Click 瞬移） ──
-      const curBasis = getBoxFaceBasis(startState.startFaceId, dimensions)
+      const curBasis = getBoxFaceBasis(startState.startFaceId, dimensions, session?.doc.baseBody)
       const intersectPoint = new THREE.Vector3()
+
+      // ── 3. 象限自由拖拽模式下的跨面实时检测与定位 ──
+      const lastFace = previewOffsetRef.current?.targetFaceId || startState.startFaceId
+      let activeFace = lastFace
+
+      if (startState.axis === 'plane') {
+        const hits = raycaster.intersectObjects(scene.children, true)
+        const hit = hits.find(
+          (i) =>
+            (i.object as THREE.Mesh).userData?.selectionMesh &&
+            !(i.object as THREE.Mesh).userData?.cavityId &&
+            i.face
+        )
+
+        if (hit && hit.face) {
+          const worldNormal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld)
+          const detectedFace = detectBaseBodyFace(worldNormal, hit.point, session?.doc.baseBody, dimensions)
+          if (detectedFace) {
+            activeFace = detectedFace
+          }
+        }
+      }
+
+      if (activeFace !== startState.startFaceId) {
+        // 跨到其他表面
+        const newBasis = getBoxFaceBasis(activeFace, dimensions, session?.doc.baseBody)
+        let pt = new THREE.Vector3()
+        const hits = raycaster.intersectObjects(scene.children, true)
+        const hit = hits.find(
+          (i) =>
+            (i.object as THREE.Mesh).userData?.selectionMesh &&
+            !(i.object as THREE.Mesh).userData?.cavityId &&
+            i.face
+        )
+        if (hit) {
+          pt = hit.point
+        } else {
+          const facePlane = new THREE.Plane().setFromNormalAndCoplanarPoint(
+            new THREE.Vector3(...newBasis.w),
+            new THREE.Vector3(...newBasis.origin)
+          )
+          raycaster.ray.intersectPlane(facePlane, pt)
+        }
+
+        const newLocal = worldToLocalPoint(newBasis, [pt.x, pt.y, pt.z])
+        const source =
+          anchorCavity ??
+          targetCavities.find((c) => c.instanceId === (selected?.type === 'cavity' ? selected.id : null)) ??
+          targetCavities[0]
+        const direction = source ? cavityAxis(source, dimensions).direction : undefined
+        const result = snapApi.current.planar(
+          activeFace,
+          newLocal.u,
+          newLocal.v,
+          'uv',
+          targetCavities.map((c) => c.instanceId),
+          e.shiftKey,
+          direction
+        )
+        const snappedX = result.u
+        const snappedY = result.v
+
+        setPreviewOffset({
+          deltaX: snappedX - startState.startX,
+          deltaY: snappedY - startState.startY,
+          targetFaceId: activeFace,
+          newX: snappedX,
+          newY: snappedY
+        })
+        return
+      }
+
+      // ── 4. 同表面内的吸附与位移计算 ──
       if (raycaster.ray.intersectPlane(startState.startPlane, intersectPoint)) {
         const local = worldToLocalPoint(curBasis, [intersectPoint.x, intersectPoint.y, intersectPoint.z])
         const deltaU = local.u - startState.clickU
@@ -744,50 +816,22 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
           candV = startState.startY + deltaV
         }
 
-        // ── 3. 象限自由拖拽模式下的跨面防误触检测与表面滞后锁定 ──
-        if (startState.axis === 'plane' && (isTargetGroup || targetCavities.length===1)) {
-          // 检查目标点是否已经明确移出当前表面边界（8mm 保护阈值，未移出则 100% 锁定在当前表面）
-          const worldTarget = localToWorldPoint(curBasis, candU, candV)
-          const [sx, sy, sz] = dimensions
-          const margin = 8.0
-          const isOutsideFace =
-            worldTarget[0] < -margin || worldTarget[0] > sx + margin ||
-            worldTarget[1] < -margin || worldTarget[1] > sy + margin ||
-            worldTarget[2] < -margin || worldTarget[2] > sz + margin
-
-          if (isOutsideFace) {
-            const intersects = raycaster.intersectObjects(scene.children, true)
-            const hit = intersects.find((i) => {
-              const obj = i.object as THREE.Mesh
-              return obj.type === 'Mesh' && (obj.geometry as any)?.type !== 'RingGeometry' && i.face
-            })
-
-            if (hit && hit.face?.normal) {
-              const detectedFace = detectBoxFace(hit.face.normal, hit.point, dimensions)
-              if (detectedFace && detectedFace !== startState.startFaceId) {
-                const newBasis = getBoxFaceBasis(detectedFace, dimensions)
-                const newLocal = worldToLocalPoint(newBasis, [hit.point.x, hit.point.y, hit.point.z])
-                const result=snapApi.current.planar(detectedFace,newLocal.u,newLocal.v,'uv',targetCavities.map(c=>c.instanceId),e.shiftKey)
-                const snappedX=result.u, snappedY=result.v
-
-                setPreviewOffset({
-                  deltaX: snappedX - startState.startX,
-                  deltaY: snappedY - startState.startY,
-                  targetFaceId: detectedFace,
-                  newX: snappedX,
-                  newY: snappedY
-                })
-                return
-              }
-            }
-          }
-        }
-
-        // ── 4. 同表面内的吸附与位移计算 ──
-        const source=anchorCavity??targetCavities.find(c=>c.instanceId===(selected?.type==='cavity'?selected.id:null))??targetCavities[0]
-        const direction=source?cavityAxis(source,dimensions).direction:undefined
-        const result=snapApi.current.planar(startState.startFaceId,candU,candV,startState.axis==='x'?'u':startState.axis==='y'?'v':'uv',targetCavities.map(c=>c.instanceId),e.shiftKey,direction)
-        const snappedX=result.u, snappedY=result.v
+        const source =
+          anchorCavity ??
+          targetCavities.find((c) => c.instanceId === (selected?.type === 'cavity' ? selected.id : null)) ??
+          targetCavities[0]
+        const direction = source ? cavityAxis(source, dimensions).direction : undefined
+        const result = snapApi.current.planar(
+          startState.startFaceId,
+          candU,
+          candV,
+          startState.axis === 'x' ? 'u' : startState.axis === 'y' ? 'v' : 'uv',
+          targetCavities.map((c) => c.instanceId),
+          e.shiftKey,
+          direction
+        )
+        const snappedX = result.u
+        const snappedY = result.v
 
         setPreviewOffset({
           deltaX: snappedX - startState.startX,
@@ -812,10 +856,13 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
         } else if (previewOffsetRef.current) {
           const { deltaX, deltaY, targetFaceId: newFace, newX, newY } = previewOffsetRef.current
 
-          // 2. 跨面移动（多孔成组或单孔）
+          // 2. 跨面移动（多孔成组、单孔或多孔联合）
           if (newFace && newFace !== startState.startFaceId) {
             if (isTargetGroup && targetGroup) {
-              rebindGroupFace(projectId, targetGroup.id, newFace, 'project', { u: (newX ?? centerX) - (centerX - (targetGroup.u ?? centerX)), v: (newY ?? centerY) - (centerY - (targetGroup.v ?? centerY)) })
+              rebindGroupFace(projectId, targetGroup.id, newFace, 'project', {
+                u: (newX ?? centerX) - (centerX - (targetGroup.u ?? centerX)),
+                v: (newY ?? centerY) - (centerY - (targetGroup.v ?? centerY))
+              })
             } else if (targetCavities.length === 1) {
               updateCavityPosition(
                 projectId,
@@ -823,6 +870,18 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
                 newX ?? targetCavities[0].u,
                 newY ?? targetCavities[0].v,
                 newFace
+              )
+            } else {
+              const centerDeltaU = (newX ?? startState.startX) - startState.startX
+              const centerDeltaV = (newY ?? startState.startY) - startState.startY
+              updateCavityPositions(
+                projectId,
+                targetCavities.map((c) => ({
+                  id: c.instanceId,
+                  u: c.u + centerDeltaU,
+                  v: c.v + centerDeltaV,
+                  faceId: newFace
+                }))
               )
             }
           } else if (Math.abs(deltaX) > 0.001 || Math.abs(deltaY) > 0.001) {
@@ -837,7 +896,7 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
                 newY ?? targetCavities[0].v + deltaY
               )
             } else {
-              moveRigidCavities(projectId, targetCavities.map(c => c.instanceId), deltaX, deltaY)
+              moveRigidCavities(projectId, targetCavities.map((c) => c.instanceId), deltaX, deltaY)
             }
           }
         }

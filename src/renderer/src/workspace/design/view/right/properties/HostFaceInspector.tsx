@@ -21,7 +21,7 @@ export const HostFaceInspector: React.FC<HostFaceInspectorProps> = ({ projectId,
   _useLocale()
   const session = useDesignStore((s: DesignState) => s.projects[projectId])
   const selectFeature = useDesignStore((s: DesignState) => s.selectFeature)
-  const setBaseDimensions = useDesignStore((s: DesignState) => s.setBaseDimensions)
+  const extrudeFace = useDesignStore((s: DesignState) => s.extrudeFace)
 
   const [thicknessDelta, setThicknessDelta] = useState(0)
   const [cavitiesFollow, setCavitiesFollow] = useState(true)
@@ -31,7 +31,8 @@ export const HostFaceInspector: React.FC<HostFaceInspectorProps> = ({ projectId,
   const [sx, sy, sz] = doc.baseBody.dimensions
   const activeScheme = doc.schemes.find((s) => s.id === doc.activeSchemeId) || doc.schemes[0]
 
-  const faceBasis = getBoxFaceBasis(faceId, doc.baseBody.dimensions)
+  const faceBasis = getBoxFaceBasis(faceId, doc.baseBody.dimensions, doc.baseBody)
+  const faceDef = doc.baseBody.faces?.find((f) => f.id.toLowerCase() === faceId.toLowerCase())
 
   // 计算面的长宽尺寸 (W × H)
   const isZFace = faceId === 'F1' || faceId === 'F2' || Math.abs(faceBasis.w[2]) > 0.8
@@ -60,22 +61,10 @@ export const HostFaceInspector: React.FC<HostFaceInspectorProps> = ({ projectId,
     )
   }
 
-  // 执行面厚度推拉
+  // 执行面厚度推拉（统一走 B-Rep 参数化推拉与孔腔跟随机制）
   const handleApplyThickness = () => {
     if (thicknessDelta === 0) return
-    // 根据面法向更新包围盒尺寸
-    const normal = faceBasis.w
-    let newSx = sx
-    let newSy = sy
-    let newSz = sz
-
-    if (Math.abs(normal[0]) > 0.8) newSx = Math.max(10, sx + thicknessDelta)
-    else if (Math.abs(normal[1]) > 0.8) newSy = Math.max(10, sy + thicknessDelta)
-    else if (Math.abs(normal[2]) > 0.8) newSz = Math.max(10, sz + thicknessDelta)
-
-    setBaseDimensions(projectId, [newSx, newSy, newSz])
-
-    // 若勾选了孔腔跟随，则同步平移或保持相对坐标
+    extrudeFace(projectId, faceId, thicknessDelta, cavitiesFollow)
     setThicknessDelta(0)
   }
 
@@ -155,6 +144,11 @@ export const HostFaceInspector: React.FC<HostFaceInspectorProps> = ({ projectId,
               <ArrowUpDown className="size-3 text-muted-foreground" />
               {_t('面厚度推拉')}
             </span>
+            {faceDef?.paramBinding && (
+              <span className="font-mono text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+                {faceDef.paramBinding.description || faceDef.paramBinding.key}
+              </span>
+            )}
           </div>
           <PropertyRow label={_t('厚度增量')} unit="mm">
             <div className="flex items-center gap-1.5 w-full">

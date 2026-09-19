@@ -40,6 +40,8 @@ export const BlockDimensionGizmo: FC<BlockDimensionGizmoProps> = ({
   const { camera, gl } = useThree()
   const controls = useThree((s) => (s as any).controls)
   const setBaseDimensions = useDesignStore((s) => s.setBaseDimensions)
+  const setBaseExtraParams = useDesignStore((s) => s.setBaseExtraParams)
+  const extrudeFace = useDesignStore((s) => s.extrudeFace)
   const session = useDesignStore((s) => s.projects[projectId])
   const baseBody = session?.doc?.baseBody
   const selected = session?.selected
@@ -61,6 +63,64 @@ export const BlockDimensionGizmo: FC<BlockDimensionGizmoProps> = ({
     }
   }, [editingAxis])
 
+  // 计算当前选中面的真实几何中心与法向（精准适配长方体、L型、T型、十字型所有表面）
+  const faceInfo = useMemo(() => {
+    if (!selectedFaceId) return null
+    const foundFace = baseBody?.faces?.find((f) => f.id === selectedFaceId)
+    const basis = getBoxFaceBasis(selectedFaceId, dimensions, baseBody)
+    const center = foundFace?.centerPoint
+      ? new THREE.Vector3(...foundFace.centerPoint)
+      : new THREE.Vector3(...basis.origin)
+    const normal = foundFace?.normal
+      ? new THREE.Vector3(...foundFace.normal)
+      : new THREE.Vector3(...basis.w)
+    const binding = foundFace?.paramBinding
+
+    let axis: 'x' | 'y' | 'z' = 'x'
+    if (Math.abs(normal.z) > 0.8) axis = 'z'
+    else if (Math.abs(normal.y) > 0.8) axis = 'y'
+    else axis = 'x'
+
+    let sign = 1
+    if (binding) {
+      sign = binding.sign
+    } else {
+      if (axis === 'z') sign = normal.z >= 0 ? 1 : -1
+      else if (axis === 'y') sign = normal.y >= 0 ? 1 : -1
+      else sign = normal.x >= 0 ? 1 : -1
+    }
+
+    return { center, normal, axis, sign, basis, binding, foundFace }
+  }, [selectedFaceId, dimensions, baseBody])
+
+  const initialDim = useMemo(() => {
+    if (!faceInfo) return 0
+    if (faceInfo.binding) {
+      if (faceInfo.binding.param === 'extraParams') {
+        const extra = baseBody?.extraParams || {}
+        return extra[faceInfo.binding.key] ?? (faceInfo.binding.key === 'cutX' ? Math.round(sx * 0.25) : Math.round(sz * 0.25))
+      }
+      if (faceInfo.binding.param === 'dimensions') {
+        if (faceInfo.binding.key === 'sx') return sx
+        if (faceInfo.binding.key === 'sy') return sy
+        if (faceInfo.binding.key === 'sz') return sz
+      }
+    }
+    return faceInfo.axis === 'x' ? sx : faceInfo.axis === 'y' ? sy : sz
+  }, [faceInfo, baseBody?.extraParams, sx, sy, sz])
+
+  const axisLabel = useMemo(() => {
+    if (!faceInfo) return ''
+    if (faceInfo.binding) {
+      if (faceInfo.binding.key === 'cutX') return _t('凹槽宽 (cutX)')
+      if (faceInfo.binding.key === 'cutZ') return _t('凹槽高 (cutZ)')
+      if (faceInfo.binding.key === 'sx') return _t('长 X')
+      if (faceInfo.binding.key === 'sy') return _t('宽 Y')
+      if (faceInfo.binding.key === 'sz') return _t('高 Z')
+    }
+    return faceInfo.axis === 'x' ? _t('长 X') : faceInfo.axis === 'y' ? _t('宽 Y') : _t('高 Z')
+  }, [faceInfo])
+
   const handleStartEdit = (axis: 'x' | 'y' | 'z', currentVal: number) => {
     setEditingAxis(axis)
     setInputValue(String(Math.round(currentVal * 10) / 10))
@@ -69,15 +129,23 @@ export const BlockDimensionGizmo: FC<BlockDimensionGizmoProps> = ({
   const handleCommitEdit = (axis: 'x' | 'y' | 'z') => {
     const num = parseFloat(inputValue)
     if (!isNaN(num) && num > 0) {
-      // 仅保留基础几何防退化下限（5.0mm），无任何孔腔阻尼硬锁死
       const clamped = Math.max(5, num)
-
-      if (axis === 'x') {
-        setBaseDimensions(projectId, [clamped, sy, sz])
-      } else if (axis === 'y') {
-        setBaseDimensions(projectId, [sx, clamped, sz])
-      } else if (axis === 'z') {
-        setBaseDimensions(projectId, [sx, sy, clamped])
+      if (faceInfo?.binding) {
+        if (faceInfo.binding.param === 'extraParams') {
+          setBaseExtraParams(projectId, { [faceInfo.binding.key]: clamped })
+        } else if (faceInfo.binding.param === 'dimensions') {
+          if (faceInfo.binding.key === 'sx') setBaseDimensions(projectId, [clamped, sy, sz])
+          else if (faceInfo.binding.key === 'sy') setBaseDimensions(projectId, [sx, clamped, sz])
+          else if (faceInfo.binding.key === 'sz') setBaseDimensions(projectId, [sx, sy, clamped])
+        }
+      } else {
+        if (axis === 'x') {
+          setBaseDimensions(projectId, [clamped, sy, sz])
+        } else if (axis === 'y') {
+          setBaseDimensions(projectId, [sx, clamped, sz])
+        } else if (axis === 'z') {
+          setBaseDimensions(projectId, [sx, sy, clamped])
+        }
       }
     }
     setEditingAxis(null)
@@ -88,6 +156,7 @@ export const BlockDimensionGizmo: FC<BlockDimensionGizmoProps> = ({
   const [dragHovered, setDragHovered] = useState(false)
   const [isHandleClicked, setIsHandleClicked] = useState(false)
   const [previewDim, setPreviewDim] = useState<number | null>(null)
+  const lastDeltaRef = useRef<number>(0)
 
   // 默认不显示文字，切换选中面时重置为不显示
   useEffect(() => {
@@ -109,47 +178,6 @@ export const BlockDimensionGizmo: FC<BlockDimensionGizmoProps> = ({
   const knobGroupRef = useRef<THREE.Group>(null)
   const lineMeshRef = useRef<THREE.LineSegments>(null)
   const dimensionBadgeRef = useRef<THREE.Group>(null)
-  const previewBoxMeshRef = useRef<THREE.Mesh>(null)
-  const previewBoxLineRef = useRef<THREE.LineSegments>(null)
-
-  // 计算当前选中面的中心与法向（支持长方体、L型、T型等所有模板形状的主面）
-  const faceInfo = useMemo(() => {
-    if (!selectedFaceId) return null
-    const basis = getBoxFaceBasis(selectedFaceId, dimensions)
-    const center = new THREE.Vector3()
-    let axis: 'x' | 'y' | 'z' = 'x'
-    let sign = 1
-
-    const fid = selectedFaceId.toLowerCase()
-    if (fid.includes('top') || fid === '+z') {
-      center.set(sx / 2, sy / 2, sz)
-      axis = 'z'
-      sign = 1
-    } else if (fid.includes('bot') || fid === '-z') {
-      center.set(sx / 2, sy / 2, 0)
-      axis = 'z'
-      sign = -1
-    } else if (fid.includes('back') || fid === '+y') {
-      center.set(sx / 2, sy, sz / 2)
-      axis = 'y'
-      sign = 1
-    } else if (fid.includes('front') || fid.includes('wall') || fid === '-y') {
-      center.set(sx / 2, 0, sz / 2)
-      axis = 'y'
-      sign = -1
-    } else if (fid.includes('right') || fid === '+x') {
-      center.set(sx, sy / 2, sz / 2)
-      axis = 'x'
-      sign = 1
-    } else if (fid.includes('left') || fid === '-x') {
-      center.set(0, sy / 2, sz / 2)
-      axis = 'x'
-      sign = -1
-    }
-
-    const normal = new THREE.Vector3(...basis.w)
-    return { center, normal, axis, sign, basis }
-  }, [selectedFaceId, dimensions, sx, sy, sz])
 
   // 推拉拖拽事件处理：使用 window 指针捕获并锁定相机，杜绝移动脱焦
   const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
@@ -160,15 +188,13 @@ export const BlockDimensionGizmo: FC<BlockDimensionGizmoProps> = ({
       controls.enabled = false
     }
 
-    const initialDim =
-      faceInfo.axis === 'x' ? sx : faceInfo.axis === 'y' ? sy : sz
-
     dragStartRef.current = {
       startPoint: e.point.clone(),
       startDim: initialDim,
       axis: faceInfo.axis,
       sign: faceInfo.sign
     }
+    lastDeltaRef.current = 0
 
     setIsDragging(true)
     setIsHandleClicked(true)
@@ -190,15 +216,15 @@ export const BlockDimensionGizmo: FC<BlockDimensionGizmoProps> = ({
       const intersectPt = new THREE.Vector3()
       if (!raycaster.ray.intersectPlane(dragPlane, intersectPt)) return
 
-      const { startPoint, startDim } = dragStartRef.current
+      const { startPoint, startDim, sign } = dragStartRef.current
       const deltaVec = intersectPt.sub(startPoint)
       // 沿外法向投影：外拉为正，内推为负
       const projDelta = deltaVec.dot(faceInfo.normal)
 
       // 默认 1.0mm 步进吸附，按住 Shift 解除
       const rawDelta = snapValue(projDelta, 1.0, winEvt.shiftKey)
-      // 仅保留基础几何防退化下限（5.0mm），无任何孔腔阻尼硬锁死限制
-      const newDim = Math.max(5, startDim + rawDelta)
+      lastDeltaRef.current = rawDelta
+      const newDim = Math.max(5, startDim + rawDelta * sign)
       setPreviewDim(newDim)
     }
 
@@ -211,19 +237,11 @@ export const BlockDimensionGizmo: FC<BlockDimensionGizmoProps> = ({
       setIsDragging(false)
       gl.domElement.style.cursor = 'auto'
 
-      setPreviewDim((curDim) => {
-        if (curDim !== null) {
-          const { axis } = dragStartRef.current
-          if (axis === 'x') {
-            setBaseDimensions(projectId, [curDim, sy, sz])
-          } else if (axis === 'y') {
-            setBaseDimensions(projectId, [sx, curDim, sz])
-          } else if (axis === 'z') {
-            setBaseDimensions(projectId, [sx, sy, curDim])
-          }
-        }
-        return null
-      })
+      if (selectedFaceId && lastDeltaRef.current !== 0) {
+        extrudeFace(projectId, selectedFaceId, lastDeltaRef.current, true)
+      }
+      setPreviewDim(null)
+      lastDeltaRef.current = 0
     }
 
     window.addEventListener('pointermove', onWinPointerMove)
@@ -237,60 +255,31 @@ export const BlockDimensionGizmo: FC<BlockDimensionGizmoProps> = ({
     }
   }, [controls])
 
-  // 动态恒定像素缩放与跟随基体尺寸变动的推拉直线、圆点手柄与尺寸徽标
+  // 动态恒定像素缩放与跟随推拉手柄变动位置
   useFrame(() => {
     if (!faceInfo) return
 
-    const curDim = previewDim !== null ? previewDim : (faceInfo.axis === 'x' ? sx : faceInfo.axis === 'y' ? sy : sz)
-    const curSx = faceInfo.axis === 'x' ? curDim : sx
-    const curSy = faceInfo.axis === 'y' ? curDim : sy
-    const curSz = faceInfo.axis === 'z' ? curDim : sz
-
-    // 1. 拖拽推拉时实时更新 3D 预览基体几何位置与尺度
-    if (previewBoxMeshRef.current && previewBoxLineRef.current && isDragging) {
-      previewBoxMeshRef.current.position.set(curSx / 2, curSy / 2, curSz / 2)
-      previewBoxMeshRef.current.scale.set(curSx, curSy, curSz)
-      previewBoxLineRef.current.position.set(curSx / 2, curSy / 2, curSz / 2)
-      previewBoxLineRef.current.scale.set(curSx, curSy, curSz)
-    }
-
-    // 2. 动态计算该面在实时尺寸下的几何中心（支持长方体、L型、T型所有主面）
-    const curCenter = new THREE.Vector3()
-    const fid = selectedFaceId ? selectedFaceId.toLowerCase() : ''
-    if (fid.includes('top') || fid === '+z') {
-      curCenter.set(curSx / 2, curSy / 2, curSz)
-    } else if (fid.includes('bot') || fid === '-z') {
-      curCenter.set(curSx / 2, curSy / 2, 0)
-    } else if (fid.includes('back') || fid === '+y') {
-      curCenter.set(curSx / 2, curSy, curSz / 2)
-    } else if (fid.includes('front') || fid.includes('wall') || fid === '-y') {
-      curCenter.set(curSx / 2, 0, curSz / 2)
-    } else if (fid.includes('right') || fid === '+x') {
-      curCenter.set(curSx, curSy / 2, curSz / 2)
-    } else if (fid.includes('left') || fid === '-x') {
-      curCenter.set(0, curSy / 2, curSz / 2)
-    } else {
-      curCenter.copy(faceInfo.center)
-    }
+    const delta = previewDim !== null ? (previewDim - initialDim) * faceInfo.sign : 0
+    const curCenter = faceInfo.center.clone().addScaledVector(faceInfo.normal, delta)
 
     const s = computeScreenPixelScale(camera, curCenter, 1.0, 1.0)
     const lineLen = 50 * s
     const knobPos = curCenter.clone().addScaledVector(faceInfo.normal, lineLen)
 
-    // 3. 圆点手柄跟随基体大小变动位置，始终 100% 正对相机
+    // 1. 圆点手柄跟随基体大小变动位置，始终 100% 正对相机
     if (knobGroupRef.current) {
       knobGroupRef.current.position.copy(knobPos)
       knobGroupRef.current.scale.set(s, s, s)
       knobGroupRef.current.quaternion.copy(camera.quaternion)
     }
 
-    // 4. 尺寸徽标在线的中间偏侧边呈现，跟随手柄与尺寸动态变动位置
+    // 2. 尺寸徽标在线的中间偏侧边呈现，跟随手柄与尺寸动态变动位置
     if (dimensionBadgeRef.current) {
       const midPos = curCenter.clone().addScaledVector(faceInfo.normal, lineLen * 0.5)
       dimensionBadgeRef.current.position.copy(midPos)
     }
 
-    // 5. 法向直线跟随基体表面实时重绘
+    // 3. 法向直线跟随基体表面实时重绘
     if (lineMeshRef.current) {
       const posAttr = lineMeshRef.current.geometry.attributes.position as THREE.BufferAttribute
       if (posAttr) {
@@ -302,23 +291,8 @@ export const BlockDimensionGizmo: FC<BlockDimensionGizmoProps> = ({
   })
 
   const isBaseSelected = selected?.type === 'base'
-  const currentDim = faceInfo
-    ? previewDim !== null
-      ? previewDim
-      : faceInfo.axis === 'x'
-      ? sx
-      : faceInfo.axis === 'y'
-      ? sy
-      : sz
-    : 0
+  const currentDim = previewDim !== null ? previewDim : initialDim
 
-  const axisLabel = faceInfo
-    ? faceInfo.axis === 'x'
-      ? _t("长 X")
-      : faceInfo.axis === 'y'
-      ? _t("宽 Y")
-      : _t("高 Z")
-    : ''
 
   // 默认不显示文字，只有在点击或拖拉手柄后才显示尺寸文字
   const shouldShowBadge = isHandleClicked || isDragging || editingAxis !== null
@@ -556,25 +530,6 @@ export const BlockDimensionGizmo: FC<BlockDimensionGizmoProps> = ({
         </group>
       )}
 
-      {/* ── 拖拽基体时的实时 3D 尺寸动态半透明预览体与高亮轮廓线（Ghost Box Preview） ── */}
-      {isDragging && (
-        <group renderOrder={330}>
-          <mesh ref={previewBoxMeshRef}>
-            <boxGeometry args={[1, 1, 1]} />
-            <meshBasicMaterial
-              color="#0ea5e9"
-              transparent
-              opacity={0.18}
-              depthWrite={false}
-              side={THREE.DoubleSide}
-            />
-          </mesh>
-          <lineSegments ref={previewBoxLineRef}>
-            <edgesGeometry args={[new THREE.BoxGeometry(1, 1, 1)]} />
-            <lineBasicMaterial color="#38bdf8" linewidth={2} transparent opacity={0.85} />
-          </lineSegments>
-        </group>
-      )}
 
       {/* ── 2. 选中面时的工程黄色线与圆点推拉手柄与线上尺寸显示 (G-04) ── */}
       {faceInfo && (

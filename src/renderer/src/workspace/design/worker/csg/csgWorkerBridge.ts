@@ -60,7 +60,18 @@ class CsgWorkerBridge {
    * 发起一次布尔计算请求（自带自增 taskId 与防抖丢弃）
    */
   public computeDifference(
-    baseBody: { template?: string; dimensions: [number, number, number] },
+    baseBody: {
+      type?: 'template' | 'step'
+      template?: string
+      dimensions: [number, number, number]
+      extraParams?: Record<string, number>
+      stepMesh?: {
+        positions: Float32Array
+        indices: Uint32Array
+        normals?: Float32Array
+        edgePositions?: Float32Array
+      }
+    },
     cavities: CsgCavityInput[],
     segments: number = 32
   ): Promise<CsgResult | null> {

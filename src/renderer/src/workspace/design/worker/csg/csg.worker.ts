@@ -22,8 +22,16 @@ export interface CsgBooleanTaskMessage {
   type: 'CSG_BOOLEAN_TASK'
   taskId: number
   baseBody: {
+    type?: 'template' | 'step'
     template?: string
     dimensions: [number, number, number]
+    extraParams?: Record<string, number>
+    stepMesh?: {
+      positions: Float32Array
+      indices: Uint32Array
+      normals?: Float32Array
+      edgePositions?: Float32Array
+    }
   }
   cavities: CsgCavityInput[]
   segments?: number // 细分段数（交互拖拽 16，静止高精 32）
@@ -153,9 +161,13 @@ self.onmessage = async (e: MessageEvent<CsgBooleanTaskMessage>) => {
     if (taskId < latestTaskId) return
 
     const [sx, sy, sz] = baseBody.dimensions
-    const currentDimsKey = `${sx}_${sy}_${sz}`
+    const template = baseBody.template || 'box'
+    const extraParams = baseBody.extraParams || {}
+    const bodyType = baseBody.type || 'template'
+    const stepMeshLen = baseBody.stepMesh ? baseBody.stepMesh.positions.length : 0
+    const currentDimsKey = `${bodyType}_${template}_${sx}_${sy}_${sz}_${JSON.stringify(extraParams)}_${stepMeshLen}`
 
-    // 若基体尺寸发生改变，清空全部空间组块缓存
+    // 若基体尺寸或形状模板发生改变，清空全部空间组块缓存
     if (currentDimsKey !== lastDimensionsKey) {
       for (const chunk of cachedChunks.values()) {
         try {
@@ -168,8 +180,81 @@ self.onmessage = async (e: MessageEvent<CsgBooleanTaskMessage>) => {
       lastDimensionsKey = currentDimsKey
     }
 
-    // 1. 构建基体 Manifold：从原点 (0,0,0) 沿 +x, +y, +z 方向拉伸 [0, sx] × [0, sy] × [0, sz]
-    const baseMesh = disposer.track(Manifold.cube([sx, sy, sz], false))
+    // 0. 特殊快速路径：STEP 外部基体在无未抑制孔腔时，100% 直通返回高保真 CAD 网格，0ms 零损耗
+    if (bodyType === 'step' && baseBody.stepMesh) {
+      const activeCavities = cavities.filter((c) => !c.suppressed)
+      if (activeCavities.length === 0) {
+        self.postMessage({
+          taskId,
+          positions: baseBody.stepMesh.positions,
+          normals: baseBody.stepMesh.normals,
+          indices: baseBody.stepMesh.indices,
+          edgePositions: baseBody.stepMesh.edgePositions,
+          faceTags: new Uint32Array(baseBody.stepMesh.indices.length / 3).fill(0),
+          numericIdToInstanceId: {}
+        })
+        return
+      }
+    }
+
+    // 1. 构建基体 Manifold (支持标准长方体、L型基体、T型基体、十字型基体以及外部导入的 STEP 实体)
+    let baseMesh: any
+    if (bodyType === 'step' && baseBody.stepMesh) {
+      try {
+        const manifoldMesh = new manifoldModule.Mesh({
+          numProp: 3,
+          vertProperties: baseBody.stepMesh.positions,
+          triVerts: baseBody.stepMesh.indices
+        })
+        baseMesh = disposer.track(new Manifold(manifoldMesh))
+      } catch (err) {
+        console.warn('[csg.worker] STEP 网格转换 Manifold 失败，降级为包围盒:', err)
+        baseMesh = disposer.track(Manifold.cube([sx, sy, sz], false))
+      }
+    } else if (template === 'l-shape') {
+      const mainBox = disposer.track(Manifold.cube([sx, sy, sz], false))
+      const cutX = extraParams.cutX ?? sx * 0.4
+      const cutZ = extraParams.cutZ ?? sz * 0.5
+      // 构造 L 型基体：自右上角挖去台阶 (X in [sx - cutX, sx], Z in [sz - cutZ, sz])
+      const cutBox = disposer.track(
+        Manifold.cube([cutX + 1, sy + 2, cutZ + 1], false).translate([sx - cutX, -1, sz - cutZ])
+      )
+      baseMesh = disposer.track(Manifold.difference(mainBox, cutBox))
+    } else if (template === 't-shape') {
+      const mainBox = disposer.track(Manifold.cube([sx, sy, sz], false))
+      const cutX = extraParams.cutX ?? sx * 0.25
+      const cutZ = extraParams.cutZ ?? sz * 0.5
+      // 构造 T 型基体：底部左右挖去两侧翼缘下凹槽
+      const cutLeft = disposer.track(
+        Manifold.cube([cutX + 1, sy + 2, cutZ + 1], false).translate([-0.5, -1, -0.5])
+      )
+      const cutRight = disposer.track(
+        Manifold.cube([cutX + 1, sy + 2, cutZ + 1], false).translate([sx - cutX, -1, -0.5])
+      )
+      const cutUnion = disposer.track(Manifold.union([cutLeft, cutRight]))
+      baseMesh = disposer.track(Manifold.difference(mainBox, cutUnion))
+    } else if (template === 'cross-shape') {
+      const mainBox = disposer.track(Manifold.cube([sx, sy, sz], false))
+      const cutX = extraParams.cutX ?? sx * 0.25
+      const cutZ = extraParams.cutZ ?? sz * 0.25
+      // 构造十字型基体：切除四个角区
+      const cutBotLeft = disposer.track(
+        Manifold.cube([cutX + 1, sy + 2, cutZ + 1], false).translate([-0.5, -1, -0.5])
+      )
+      const cutBotRight = disposer.track(
+        Manifold.cube([cutX + 1, sy + 2, cutZ + 1], false).translate([sx - cutX, -1, -0.5])
+      )
+      const cutTopLeft = disposer.track(
+        Manifold.cube([cutX + 1, sy + 2, cutZ + 1], false).translate([-0.5, -1, sz - cutZ])
+      )
+      const cutTopRight = disposer.track(
+        Manifold.cube([cutX + 1, sy + 2, cutZ + 1], false).translate([sx - cutX, -1, sz - cutZ])
+      )
+      const cutUnion = disposer.track(Manifold.union([cutBotLeft, cutBotRight, cutTopLeft, cutTopRight]))
+      baseMesh = disposer.track(Manifold.difference(mainBox, cutUnion))
+    } else {
+      baseMesh = disposer.track(Manifold.cube([sx, sy, sz], false))
+    }
     const baseOriginalId = baseMesh.originalID?.() ?? 0
 
     // 2. 将未抑制的孔腔分配到空间组块 (Spatial Chunking)
