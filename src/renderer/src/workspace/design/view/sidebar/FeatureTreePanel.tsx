@@ -231,7 +231,11 @@ export const FeatureTreePanel: FC<FeatureTreePanelProps> = ({ projectId }) => {
           <div
             className={cn(
               'group flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-1.5 transition-colors',
-              isBaseSelected ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground hover:bg-accent'
+              session?.baseBodyError
+                ? 'border border-amber-500/40 bg-amber-500/10 text-foreground'
+                : isBaseSelected
+                  ? 'bg-accent text-accent-foreground font-medium'
+                  : 'text-foreground hover:bg-accent'
             )}
             onClick={() => selectFeature(projectId, { type: 'base', id: 'base' })}
           >
@@ -249,9 +253,29 @@ export const FeatureTreePanel: FC<FeatureTreePanelProps> = ({ projectId }) => {
             {/* 根据类型渲染 Block.svg, LBlock.svg, TBlock.svg, ImportStep.svg */}
             <img src={baseIcon} alt="block" className="size-4 shrink-0 object-contain" />
 
-            <span className="min-w-0 flex-1 truncate text-[11px]">
-              {_t("基体 ·")}{shapeName}
+            <span className="min-w-0 flex-1 truncate text-[11px] flex items-center gap-1">
+              <span>{_t("基体 ·")}{shapeName}</span>
+              {session?.baseBodyError && (
+                <span className="text-[9px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-500/20 px-1 py-0.2 rounded shrink-0">
+                  {_t("已降级")}
+                </span>
+              )}
             </span>
+
+            {/* 警告提示图标 */}
+            {session?.baseBodyError && (
+              <span
+                title={session.baseBodyError}
+                className="flex items-center text-amber-500 hover:text-amber-600 transition-colors shrink-0"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  alert(session.baseBodyError)
+                }}
+              >
+                <AlertTriangle className="size-3.5 shrink-0 animate-pulse" />
+              </span>
+            )}
+
             <span className="shrink-0 text-[10px] text-foreground/40 font-mono">
               {sx}×{sy}×{sz}
             </span>

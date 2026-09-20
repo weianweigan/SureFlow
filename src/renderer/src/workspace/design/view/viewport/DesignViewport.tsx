@@ -98,7 +98,7 @@ interface CameraRigProps {
   boundsRadius: number
   fitTrigger: number
   center: THREE.Vector3
-  focusTarget?: { position: THREE.Vector3; target: THREE.Vector3; key: number } | null
+  focusTarget?: { position: THREE.Vector3; target: THREE.Vector3; up?: THREE.Vector3; key: number } | null
 }
 
 /**
@@ -192,20 +192,34 @@ function CameraRig({ preset, boundsRadius, fitTrigger, center, focusTarget }: Ca
     return viewSize / (r * 2 * 1.25)
   }
 
+  // 确保正交相机裁剪平面足够宽广，彻底杜绝大尺寸模型 (如 1500mm+ STEP 模型) 被视口剪裁破面
+  useEffect(() => {
+    if (camera) {
+      camera.near = -100000
+      camera.far = 100000
+      camera.updateProjectionMatrix()
+    }
+  }, [camera])
+
   const lastPresetRef = useRef<ViewPreset>(preset)
   const lastFitTriggerRef = useRef<number>(fitTrigger)
+  const lastRadiusRef = useRef<number>(boundsRadius)
   const isFirstMountRef = useRef<boolean>(true)
 
-  // 仅在显式预设切换或 Fit 显式触发时响应，基体尺寸更新绝不自动打飞相机定位
+  // 在显式预设切换、Fit 显式触发或基体尺寸发生量级变化（如导入大尺寸 STEP 模型）时响应
   useEffect(() => {
     if (!controls) return
 
     const isPresetChanged = lastPresetRef.current !== preset
     const isFitTriggered = lastFitTriggerRef.current !== fitTrigger
+    const radiusRatio = lastRadiusRef.current > 0 ? boundsRadius / lastRadiusRef.current : 1
+    const isSizeJumped = radiusRatio > 1.3 || radiusRatio < 0.7
+
     lastPresetRef.current = preset
     lastFitTriggerRef.current = fitTrigger
+    lastRadiusRef.current = boundsRadius
 
-    if (!isFirstMountRef.current && !isPresetChanged && !isFitTriggered) {
+    if (!isFirstMountRef.current && !isPresetChanged && !isFitTriggered && !isSizeJumped) {
       return
     }
     isFirstMountRef.current = false
@@ -237,7 +251,7 @@ function CameraRig({ preset, boundsRadius, fitTrigger, center, focusTarget }: Ca
       startTarget: controls.target ? controls.target.clone() : center.clone(),
       endTarget: focusTarget.target.clone(),
       startUp: camera.up.clone(),
-      targetUp: new THREE.Vector3(0, 0, 1),
+      targetUp: focusTarget.up ? focusTarget.up.clone() : new THREE.Vector3(0, 0, 1),
       startZoom: (camera as THREE.OrthographicCamera).zoom || 1,
       targetZoom: computeFitZoom(boundsRadius * 0.4),
       active: true
@@ -505,24 +519,30 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
       return { box: geom, edges }
     }
 
-    if (session.doc.baseBody.type === 'step' && session.doc.baseBody.stepMesh) {
-      const sm = session.doc.baseBody.stepMesh
-      const geom = new THREE.BufferGeometry()
-      geom.setAttribute('position', new THREE.Float32BufferAttribute(sm.positions, 3))
-      if (sm.normals) {
-        geom.setAttribute('normal', new THREE.Float32BufferAttribute(sm.normals, 3))
-      } else {
-        geom.computeVertexNormals()
+    if (session.doc.baseBody.type === 'step') {
+      const sm =
+        session.doc.baseBody.stepMesh ||
+        (session.doc.baseBody.stepContent && stepMeshCacheRef.current?.content === session.doc.baseBody.stepContent
+          ? stepMeshCacheRef.current.mesh
+          : null)
+      if (sm && sm.positions && sm.positions.length > 0) {
+        const geom = new THREE.BufferGeometry()
+        geom.setAttribute('position', new THREE.Float32BufferAttribute(sm.positions, 3))
+        if (sm.normals && sm.normals.length > 0) {
+          geom.setAttribute('normal', new THREE.Float32BufferAttribute(sm.normals, 3))
+        } else {
+          geom.computeVertexNormals()
+        }
+        geom.setIndex(Array.from(sm.indices))
+        let edges: THREE.BufferGeometry
+        if (sm.edgePositions && sm.edgePositions.length > 0) {
+          edges = new THREE.BufferGeometry()
+          edges.setAttribute('position', new THREE.Float32BufferAttribute(sm.edgePositions, 3))
+        } else {
+          edges = new THREE.EdgesGeometry(geom, 24)
+        }
+        return { box: geom, edges }
       }
-      geom.setIndex(Array.from(sm.indices))
-      let edges: THREE.BufferGeometry
-      if (sm.edgePositions && sm.edgePositions.length > 0) {
-        edges = new THREE.BufferGeometry()
-        edges.setAttribute('position', new THREE.Float32BufferAttribute(sm.edgePositions, 3))
-      } else {
-        edges = new THREE.EdgesGeometry(geom, 24)
-      }
-      return { box: geom, edges }
     }
 
     if (session.doc.baseBody.type === 'template' && template === 'cross-shape') {
@@ -560,6 +580,7 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
     session?.doc.baseBody.template,
     session?.doc.baseBody.type,
     session?.doc.baseBody.stepMesh,
+    session?.doc.baseBody.stepContent,
     session?.doc.baseBody.extraParams
   ])
 
@@ -648,8 +669,8 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
         }
       })
 
-      let stepMesh: any = doc.baseBody.stepMesh
-      if (doc.baseBody.type === 'step' && !stepMesh && doc.baseBody.stepContent) {
+      let stepMesh: any = null
+      if (doc.baseBody.type === 'step' && doc.baseBody.stepContent) {
         if (stepMeshCacheRef.current?.content === doc.baseBody.stepContent) {
           stepMesh = stepMeshCacheRef.current.mesh
         } else {
@@ -657,10 +678,18 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
             const parsed = await parseStepToThreeGeometry(doc.baseBody.stepContent)
             stepMesh = parsed.stepMesh
             stepMeshCacheRef.current = { content: doc.baseBody.stepContent, mesh: stepMesh }
-          } catch (err) {
+          } catch (err: any) {
             console.warn('[DesignViewport] 解析 STEP 实体失败:', err)
+            useDesignStore.getState().setBaseBodyError(projectId, _t('STEP 实体解析失败，已回退为长方体包围盒: ') + (err?.message || String(err)))
           }
         }
+      }
+      if (doc.baseBody.type === 'step' && !stepMesh && doc.baseBody.stepMesh) {
+        stepMesh = doc.baseBody.stepMesh
+      }
+
+      if (doc.baseBody.type === 'step' && !stepMesh) {
+        useDesignStore.getState().setBaseBodyError(projectId, _t('未检测到有效的 STEP 实体网格，当前降级为长方体显示'))
       }
 
       const baseBodyInput = {
@@ -673,10 +702,16 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
 
       const t0 = performance.now()
       const res = await csgBridge.computeDifference(baseBodyInput, cavitiesInput)
-      if (!res || isCancelled) return
+      if (!res || isCancelled) {
+        if (!isCancelled && cavitiesInput.length > 0) {
+          useDesignStore.getState().setBaseBodyError(projectId, _t('孔腔布尔切削计算失败，当前回退为基础基体显示'))
+        }
+        return
+      }
       const cost = Math.round(performance.now() - t0)
       usePerfStore.getState().setCsgTime(cost)
       usePerfStore.getState().setIsCsgComputing(false)
+      useDesignStore.getState().setBaseBodyError(projectId, null)
 
       rawCsgRef.current = {
         positions: res.positions,
@@ -720,6 +755,7 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
     session?.doc.baseBody.type,
     session?.doc.baseBody.extraParams,
     session?.doc.baseBody.stepContent,
+    session?.doc.baseBody.stepMesh,
     session?.doc.activeSchemeId,
     session?.doc.schemes,
     libraryDoc
@@ -761,6 +797,7 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
   const [focusTarget, setFocusTarget] = useState<{
     position: THREE.Vector3
     target: THREE.Vector3
+    up?: THREE.Vector3
     key: number
   } | null>(null)
 
@@ -843,6 +880,15 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
     window.addEventListener('sureflow:focus-cavity', handleFocusEvent)
     return () => window.removeEventListener('sureflow:focus-cavity', handleFocusEvent)
   }, [focusOnCavity])
+
+  // 监听全局全景居中事件（如导入 STEP 自动全景适配）
+  useEffect(() => {
+    const handleFitEvent = () => {
+      handleFitView()
+    }
+    window.addEventListener('sureflow:fit-view', handleFitEvent)
+    return () => window.removeEventListener('sureflow:fit-view', handleFitEvent)
+  }, [handleFitView])
 
   // F 键智能正视与全屏居中快捷键、Z 键聚焦、Ctrl+G 成组/解散组与 Esc 取消选择
   useEffect(() => {
@@ -983,8 +1029,6 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
 
   // 模型外接包围球半径
   const boundsRadius = Math.sqrt(sx * sx + sy * sy + sz * sz) / 2
-  // 相机最小允许距离 (R_bounds * 1.05)，防止穿入模型破面
-  const minDistance = boundsRadius * 1.05
 
   const isBaseSelected = selected?.type === 'base'
 
@@ -1503,8 +1547,8 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
           camera={{
             position: [sx / 2 + boundsRadius * 1.6, sy / 2 + boundsRadius * 1.4, sz / 2 + boundsRadius * 1.9],
             zoom: Math.min(800, 600) / (boundsRadius * 2 * 1.25),
-            near: 0.1,
-            far: 10000
+            near: -100000,
+            far: 100000
           }}
           onCreated={({ gl, get }) => {
             gl.localClippingEnabled = true
@@ -1558,7 +1602,7 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
 
           {/* 不可见孔口拾取代理（双击聚焦） */}
           {activeScheme?.cavities.filter(c => !c.suppressed).map((cavity) => (
-            <CavityProxyRing key={cavity.instanceId} cavity={cavity} dimensions={[sx,sy,sz]}
+            <CavityProxyRing key={cavity.instanceId} cavity={cavity} dimensions={[sx,sy,sz]} baseBody={doc?.baseBody}
               onClick={handleMeshClick} onDoubleClick={handleMeshDoubleClick}/>
           ))}
 
@@ -1584,9 +1628,27 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
                   '-x': 'left',
                   '+x': 'right'
                 }
-                const targetPreset = presetMap[faceId.toLowerCase()] || (faceId as ViewPreset)
-                setViewPreset(targetPreset)
-                setFitTrigger((t) => t + 1)
+                const targetPreset = presetMap[faceId.toLowerCase()]
+                if (targetPreset) {
+                  setViewPreset(targetPreset)
+                  setFitTrigger((t) => t + 1)
+                } else {
+                  // 对于自定义基体面（L型台阶面、T型凹槽面、STEP 任意复杂几何面）
+                  const basis = getBoxFaceBasis(faceId, [sx, sy, sz], doc.baseBody)
+                  const normal = new THREE.Vector3(...basis.w)
+                  const up = new THREE.Vector3(...basis.v)
+                  const matchedDef = doc.baseBody.faces?.find((f: any) => f.id.toLowerCase() === faceId.toLowerCase())
+                  const centerPt = matchedDef?.centerPoint
+                    ? new THREE.Vector3(...matchedDef.centerPoint)
+                    : new THREE.Vector3(...basis.origin)
+                  const dist = Math.max(boundsRadius * 2.3, 180)
+                  setFocusTarget({
+                    position: centerPt.clone().addScaledVector(normal, dist),
+                    target: centerPt.clone(),
+                    up,
+                    key: Date.now()
+                  })
+                }
               }}
             />
           )}
@@ -1650,8 +1712,8 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
             makeDefault
             enableDamping={false}
             target={[sx / 2, sy / 2, sz / 2]}
-            minDistance={minDistance}
-            maxDistance={boundsRadius * 8}
+            minDistance={0}
+            maxDistance={Math.max(boundsRadius * 20, 100000)}
             mouseButtons={{
               LEFT: undefined,
               MIDDLE: THREE.MOUSE.PAN,

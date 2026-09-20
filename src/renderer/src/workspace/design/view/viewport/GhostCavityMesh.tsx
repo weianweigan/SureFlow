@@ -77,17 +77,19 @@ export const GhostCavityMesh: FC<GhostCavityMeshProps> = ({ dimensions, projectI
     return buildOutlineGeometry(template.geometry.outline, template.unit)
   }, [template?.geometry?.outline, template?.unit])
 
+  const baseBody = session?.doc?.baseBody
+
   // 3. 面基准及世界空间变换矩阵（以落点 (u, v) 为中心原点）
   const { basis, worldMatrix4 } = useMemo(() => {
     if (!currentFaceId) {
       return { basis: null, worldMatrix4: new THREE.Matrix4() }
     }
-    const b = getBoxFaceBasis(currentFaceId, dimensions)
+    const b = getBoxFaceBasis(currentFaceId, dimensions, baseBody)
     const rawMatrix = getCavityWorldMatrix(b, u, v, 0, 0)
     const m = new THREE.Matrix4()
     m.fromArray(rawMatrix)
     return { basis: b, worldMatrix4: m }
-  }, [currentFaceId, dimensions, u, v])
+  }, [currentFaceId, dimensions, baseBody, u, v])
 
   // 4. 内部孔腔干涉检测（深入内部遇到其他已有孔相交或净距 < 3.0mm 即刻判定干涉）
   const hasInterference = useMemo(() => {
@@ -106,7 +108,7 @@ export const GhostCavityMesh: FC<GhostCavityMeshProps> = ({ dimensions, projectI
 
       for (const cav of cavities) {
         if (cav.suppressed) continue
-        const cavBasis = getBoxFaceBasis(cav.faceId, dimensions)
+        const cavBasis = getBoxFaceBasis(cav.faceId, dimensions, baseBody)
         const cavSteps = cav.steps || []
         const cavDepth = cavSteps.reduce((acc: number, s: any) => acc + (s.length || s.depth || 0), 0) || 20
         const cavMaxDia = Math.max(0, ...cavSteps.map((s: any) => s.diameter))
@@ -126,7 +128,7 @@ export const GhostCavityMesh: FC<GhostCavityMeshProps> = ({ dimensions, projectI
       }
     }
     return false
-  }, [currentFaceId, basis, cavities, holePositions, u, v, dimensions])
+  }, [currentFaceId, basis, cavities, holePositions, u, v, dimensions, baseBody])
 
   // 十字中心定位标线几何体
   const crossGeom = useMemo(() => {
@@ -188,6 +190,7 @@ export const GhostCavityMesh: FC<GhostCavityMeshProps> = ({ dimensions, projectI
             transparent
             opacity={0.9}
             depthTest={false}
+            depthWrite={false}
           />
         </lineSegments>
 
@@ -198,6 +201,7 @@ export const GhostCavityMesh: FC<GhostCavityMeshProps> = ({ dimensions, projectI
             color={accentColor}
             side={THREE.DoubleSide}
             depthTest={false}
+            depthWrite={false}
           />
         </mesh>
 
@@ -223,6 +227,7 @@ export const GhostCavityMesh: FC<GhostCavityMeshProps> = ({ dimensions, projectI
                 transparent
                 opacity={0.85}
                 depthTest={false}
+                depthWrite={false}
               />
             </mesh>
 
@@ -234,6 +239,7 @@ export const GhostCavityMesh: FC<GhostCavityMeshProps> = ({ dimensions, projectI
                   color={hole.portSemantic?.color || accentColor}
                   side={THREE.DoubleSide}
                   depthTest={false}
+                  depthWrite={false}
                 />
               </mesh>
             )}

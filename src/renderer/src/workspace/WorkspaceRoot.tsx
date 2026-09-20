@@ -14,6 +14,7 @@ import { Button } from '@renderer/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
 import { Separator } from '@renderer/components/ui/separator'
 import { Plus, FolderOpen, Settings, Library } from 'lucide-react'
+// 注：CAD Socket 桥接服务及 initCadBridgeListener 接口已在 cadIntegrationService 中就绪，待后续 Connector 模块整体规划启用
 
 interface ActionMenuItem {
   id: string
@@ -117,6 +118,11 @@ export function WorkspaceRoot(): React.ReactElement {
   useEffect(() => window.settingsApi?.onNavigateHome?.(() => {
     openPanelByType('home')
   }), [])
+  // 注：CAD Socket 接口与连接器 Connector 模块后续统一规划，暂不默认自动启动监听
+  // useEffect(() => {
+  //   const unsub = initCadBridgeListener()
+  //   return () => unsub()
+  // }, [])
   const onReady = useCallback((event: DockviewReadyEvent) => {
     const api = event.api
     useWorkspaceStore.getState().setApi(api)

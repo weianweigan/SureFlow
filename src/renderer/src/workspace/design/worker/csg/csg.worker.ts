@@ -184,15 +184,18 @@ self.onmessage = async (e: MessageEvent<CsgBooleanTaskMessage>) => {
     if (bodyType === 'step' && baseBody.stepMesh) {
       const activeCavities = cavities.filter((c) => !c.suppressed)
       if (activeCavities.length === 0) {
-        self.postMessage({
+        const edgePositions = baseBody.stepMesh.edgePositions || new Float32Array(0)
+        const response: CsgSuccessResponse = {
+          type: 'CSG_SUCCESS',
           taskId,
           positions: baseBody.stepMesh.positions,
-          normals: baseBody.stepMesh.normals,
+          normals: baseBody.stepMesh.normals || new Float32Array(0),
           indices: baseBody.stepMesh.indices,
-          edgePositions: baseBody.stepMesh.edgePositions,
+          edgePositions,
           faceTags: new Uint32Array(baseBody.stepMesh.indices.length / 3).fill(0),
           numericIdToInstanceId: {}
-        })
+        }
+        self.postMessage(response)
         return
       }
     }
@@ -206,6 +209,7 @@ self.onmessage = async (e: MessageEvent<CsgBooleanTaskMessage>) => {
           vertProperties: baseBody.stepMesh.positions,
           triVerts: baseBody.stepMesh.indices
         })
+        manifoldMesh.merge()
         baseMesh = disposer.track(new Manifold(manifoldMesh))
       } catch (err) {
         console.warn('[csg.worker] STEP 网格转换 Manifold 失败，降级为包围盒:', err)

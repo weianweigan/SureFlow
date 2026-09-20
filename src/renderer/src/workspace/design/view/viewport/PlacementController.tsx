@@ -125,7 +125,7 @@ export const PlacementController: FC<PlacementControllerProps> = ({
       const local=worldToLocalPoint(basis,point.toArray() as Vec3)
       const template=usePlacementStore.getState().template
       const first=template?resolveAllTemplateHoles(template,libraryDoc)[0]:undefined
-      const direction=cavityAxis({faceId,u:0,v:0,depthOffset:0,rotation:first?.rotation??0,tiltAngle:first?.tiltAngle,azimuth:first?.azimuth} as CavityInstance,dimensions).direction
+      const direction=cavityAxis({faceId,u:0,v:0,depthOffset:0,rotation:first?.rotation??0,tiltAngle:first?.tiltAngle,azimuth:first?.azimuth} as CavityInstance,dimensions,body).direction
       const result=snapApi.current.planar(faceId,local.u,local.v,'uv',[],shiftKey,direction)
       updatePlacement(faceId,result.u,result.v,localToWorldPoint(basis,result.u,result.v),true)
       return

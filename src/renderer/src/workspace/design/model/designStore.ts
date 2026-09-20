@@ -31,6 +31,7 @@ import { useWorkspaceStore } from '@renderer/workspace/layout/layoutStore'
 import { useRecentFilesStore } from '@renderer/workspace/registry/recentFilesStore'
 
 import { translateRigidSelection } from './selectionMath'
+import { parseStepToThreeGeometry } from '../../tabs/viewer/stepLoader'
 
 const UNDO_LIMIT = 50
 
@@ -168,6 +169,7 @@ export interface DesignProjectSession {
   isolatedChannelId?: string | null
   initialCacheBuffer?: ArrayBuffer | null
   initialGlbBuffer?: ArrayBuffer | null
+  baseBodyError?: string | null
 }
 
 export interface DesignState {
@@ -216,6 +218,8 @@ export interface DesignState {
     payload: {
       stepContent: string
       stepFileName: string
+      stepFilePath?: string
+      stepAssetRef?: string
       dimensions: [number, number, number]
       faces?: BaseFaceDefinition[]
       stepMesh?: {
@@ -226,6 +230,8 @@ export interface DesignState {
       }
     }
   ) => void
+  /** 每次打开工程或主动请求时从内嵌 stepContent 强制重建实体几何与面 */
+  rebuildStepModel: (projectId: string) => Promise<boolean>
   /** 修改基体额外参数 (如 L型/T型切除参数) */
   setBaseExtraParams: (projectId: string, params: Record<string, number>) => void
   /** 修改基体长方体尺寸 [Lx, Ly, Lz] */
@@ -238,6 +244,8 @@ export interface DesignState {
   setBaseMaterialProperty: (projectId: string, key: keyof MaterialConfig, value: string | number) => void
   /** 修改基体边缘倒角模式 */
   setBaseChamfer: (projectId: string, chamfer: ChamferMode) => void
+  /** 设置或清除基体错误状态（如降级长方体显示告警） */
+  setBaseBodyError: (projectId: string, error: string | null) => void
 
   /** 方案管理 */
   addScheme: (projectId: string, name?: string) => void
@@ -380,6 +388,12 @@ export const useDesignStore = create<DesignState>((set, get) => ({
         }
       })
     )
+
+    // 若当前工程为 step 基体，每次打开时需要从 stepContent 重建模型，并检测源文件是否存在
+    const currentSession = get().projects[projectId]
+    if (currentSession?.doc?.baseBody?.type === 'step') {
+      void get().rebuildStepModel(projectId)
+    }
   },
 
   removeProject: (projectId) => {
@@ -579,6 +593,10 @@ export const useDesignStore = create<DesignState>((set, get) => ({
           p.doc.baseBody.type = 'step'
           p.doc.baseBody.stepContent = payload.stepContent
           p.doc.baseBody.stepFileName = payload.stepFileName
+          if (payload.stepFilePath !== undefined) {
+            p.doc.baseBody.stepFilePath = payload.stepFilePath
+          }
+          p.doc.baseBody.stepAssetRef = payload.stepAssetRef || payload.stepFilePath || payload.stepFileName
           p.doc.baseBody.dimensions = [...payload.dimensions]
           if (payload.faces && payload.faces.length > 0) {
             p.doc.baseBody.faces = payload.faces
@@ -586,9 +604,65 @@ export const useDesignStore = create<DesignState>((set, get) => ({
           if (payload.stepMesh) {
             p.doc.baseBody.stepMesh = payload.stepMesh
           }
+          p.baseBodyError = null
         }
       })
     )
+  },
+
+  rebuildStepModel: async (projectId: string) => {
+    const session = get().projects[projectId]
+    if (!session || session.doc.baseBody.type !== 'step') return false
+
+    const { baseBody } = session.doc
+    const stepPath = baseBody.stepFilePath || baseBody.stepAssetRef
+
+    // 1. 原始文件丢失检测与用户提醒
+    if (stepPath && (stepPath.includes('/') || stepPath.includes('\\'))) {
+      try {
+        if (window.fileApi?.exists) {
+          const exists = await window.fileApi.exists(stepPath)
+          if (!exists) {
+            get().setBaseBodyError(
+              projectId,
+              `原始 STEP 文件丢失或不可访问 (${stepPath})。已从工程内嵌 stepContent 重建模型。`
+            )
+          }
+        }
+      } catch (err) {
+        console.warn('[DesignStore] 检查原始 STEP 文件路径失败:', err)
+      }
+    }
+
+    // 2. 每次打开文件时从 stepContent 重建模型
+    if (baseBody.stepContent) {
+      try {
+        const parsed = await parseStepToThreeGeometry(baseBody.stepContent)
+        set(
+          produce((state: DesignState) => {
+            const p = state.projects[projectId]
+            if (p && p.doc.baseBody.type === 'step') {
+              p.doc.baseBody.stepMesh = parsed.stepMesh
+              if (parsed.dimensions) {
+                p.doc.baseBody.dimensions = parsed.dimensions
+              }
+              if (parsed.faces && parsed.faces.length > 0 && (!p.doc.baseBody.faces || p.doc.baseBody.faces.length === 0)) {
+                p.doc.baseBody.faces = parsed.faces
+              }
+            }
+          })
+        )
+        return true
+      } catch (err: any) {
+        console.error('[DesignStore] 从 stepContent 重建 STEP 模型失败:', err)
+        get().setBaseBodyError(
+          projectId,
+          `从内嵌 STEP 数据重建实体失败: ${err?.message || String(err)}，已降级为长方体包围盒。`
+        )
+        return false
+      }
+    }
+    return false
   },
 
   setBaseExtraParams: (projectId, params) => {
@@ -686,6 +760,17 @@ export const useDesignStore = create<DesignState>((set, get) => ({
         if (p) {
           pushHistory(p)
           p.doc.baseBody.chamfer = chamfer
+        }
+      })
+    )
+  },
+
+  setBaseBodyError: (projectId, error) => {
+    set(
+      produce((state: DesignState) => {
+        const p = state.projects[projectId]
+        if (p) {
+          p.baseBodyError = error
         }
       })
     )

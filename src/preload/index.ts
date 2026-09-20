@@ -104,6 +104,8 @@ const projectApi = {
 const fileApi = {
   readBinary: (filePath: string): Promise<ArrayBuffer> =>
     ipcRenderer.invoke('file:read-binary', filePath),
+  exists: (filePath: string): Promise<boolean> =>
+    ipcRenderer.invoke('file:exists', filePath),
   toSafeFileUrl: (filePath: string): string => {
     if (filePath.startsWith('sf-file://')) return filePath
     const normalized = filePath.replace(/\\/g, '/')
@@ -137,11 +139,35 @@ contextBridge.exposeInMainWorld('libraryApi', libraryApi)
 contextBridge.exposeInMainWorld('projectApi', projectApi)
 contextBridge.exposeInMainWorld('fileApi', fileApi)
 
+const cadBridgeApi = {
+  getStatus: (): Promise<import('../shared/cad/cadBridgeTypes').CadBridgeStatus> =>
+    ipcRenderer.invoke('cad:get-status'),
+  startServer: (port?: number): Promise<number> =>
+    ipcRenderer.invoke('cad:start-server', port),
+  stopServer: (): Promise<void> =>
+    ipcRenderer.invoke('cad:stop-server'),
+  onImportStep: (callback: (params: import('../shared/cad/cadBridgeTypes').CadImportStepParams) => void): (() => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, params: import('../shared/cad/cadBridgeTypes').CadImportStepParams) => callback(params)
+    ipcRenderer.on('cad:import-step-event', listener)
+    return () => ipcRenderer.removeListener('cad:import-step-event', listener)
+  },
+  onExportStepRequest: (callback: (params: import('../shared/cad/cadBridgeTypes').CadExportStepParams) => Promise<import('../shared/cad/cadBridgeTypes').CadBridgeResponse>): (() => void) => {
+    const listener = async (_e: Electron.IpcRendererEvent, params: import('../shared/cad/cadBridgeTypes').CadExportStepParams) => {
+      const res = await callback(params)
+      ipcRenderer.send('cad:export-step-reply', res)
+    }
+    ipcRenderer.on('cad:export-step-request', listener)
+    return () => ipcRenderer.removeListener('cad:export-step-request', listener)
+  }
+}
+contextBridge.exposeInMainWorld('cadBridgeApi', cadBridgeApi)
+
 export type Api = typeof api
 export type WindowControls = typeof windowControls
 export type LibraryApi = typeof libraryApi
 export type ProjectApi = typeof projectApi
 export type FileApi = typeof fileApi
+export type CadBridgeApi = typeof cadBridgeApi
 
 
 const updaterApi = {

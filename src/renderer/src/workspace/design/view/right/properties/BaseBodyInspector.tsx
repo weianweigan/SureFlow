@@ -16,7 +16,7 @@ import {
   resolveMaterialConfig
 } from '@shared/design/types'
 import { cn } from '@renderer/lib/utils'
-import { FileCode, RotateCcw, Loader2 } from 'lucide-react'
+import { FileCode, Loader2, AlertTriangle, RefreshCw, FolderOpen } from 'lucide-react'
 import { assetUrl } from '../../../../library/view/typeIcons'
 import { parseStepToThreeGeometry } from '@renderer/workspace/tabs/viewer/stepLoader'
 
@@ -59,16 +59,21 @@ export const BaseBodyInspector: React.FC<BaseBodyInspectorProps> = ({ projectId 
     try {
       const buffer = await file.arrayBuffer()
       const text = await file.text()
+      const filePath = (file as any).path || ''
       const { faces: extractedFaces, dimensions: rawDims, stepMesh } = await parseStepToThreeGeometry(buffer)
       setBaseStepModel(projectId, {
         stepContent: text,
         stepFileName: file.name,
+        stepFilePath: filePath,
+        stepAssetRef: filePath || file.name,
         dimensions: rawDims,
         faces: extractedFaces && extractedFaces.length > 0 ? extractedFaces : [...STANDARD_BOX_FACES],
         stepMesh
       })
+      window.dispatchEvent(new CustomEvent('sureflow:fit-view'))
     } catch (err: any) {
       console.error('[BaseBodyInspector] 解析导入 STEP 失败:', err)
+      useDesignStore.getState().setBaseBodyError(projectId, _t('解析 STEP 文件失败: ') + (err?.message || String(err)))
       alert(_t('解析 STEP 文件失败: ') + (err?.message || String(err)))
     } finally {
       setIsImporting(false)
@@ -76,10 +81,61 @@ export const BaseBodyInspector: React.FC<BaseBodyInspectorProps> = ({ projectId 
     }
   }
 
+  const handleRefreshFromSource = async () => {
+    const filePath = doc.baseBody.stepFilePath
+    if (!filePath) {
+      fileInputRef.current?.click()
+      return
+    }
+    setIsImporting(true)
+    try {
+      if (window.fileApi?.exists) {
+        const exists = await window.fileApi.exists(filePath)
+        if (!exists) {
+          useDesignStore.getState().setBaseBodyError(
+            projectId,
+            _t('原始 STEP 源文件已丢失或无法访问: ') + filePath
+          )
+          alert(_t('原始 STEP 源文件不存在或已被移动，请点击“更换”重新选择文件！\n路径: ') + filePath)
+          setIsImporting(false)
+          return
+        }
+      }
+
+      let buffer: ArrayBuffer
+      if (window.fileApi?.readBinary) {
+        buffer = await window.fileApi.readBinary(filePath)
+      } else {
+        fileInputRef.current?.click()
+        return
+      }
+      const text = new TextDecoder().decode(buffer)
+      const fileName = doc.baseBody.stepFileName || filePath.split('/').pop()?.split('\\').pop() || 'model.step'
+      const { faces: extractedFaces, dimensions: rawDims, stepMesh } = await parseStepToThreeGeometry(buffer)
+      setBaseStepModel(projectId, {
+        stepContent: text,
+        stepFileName: fileName,
+        stepFilePath: filePath,
+        stepAssetRef: filePath,
+        dimensions: rawDims,
+        faces: extractedFaces && extractedFaces.length > 0 ? extractedFaces : [...STANDARD_BOX_FACES],
+        stepMesh
+      })
+      window.dispatchEvent(new CustomEvent('sureflow:fit-view'))
+    } catch (err: any) {
+      console.error('[BaseBodyInspector] 从源文件更新 STEP 失败:', err)
+      useDesignStore.getState().setBaseBodyError(projectId, _t('从源文件更新 STEP 失败: ') + (err?.message || String(err)))
+      alert(_t('从源文件更新 STEP 失败: ') + (err?.message || String(err)))
+    } finally {
+      setIsImporting(false)
+    }
+  }
+
   const handleShapeSelect = (optId: BaseBodyTemplate | 'step') => {
     if (optId === 'step') {
       if (doc.baseBody.stepContent) {
         setBaseType(projectId, 'step')
+        window.dispatchEvent(new CustomEvent('sureflow:fit-view'))
       } else {
         fileInputRef.current?.click()
       }
@@ -104,8 +160,19 @@ export const BaseBodyInspector: React.FC<BaseBodyInspectorProps> = ({ projectId 
         }}
       />
 
+      {/* 基体错误或降级警示横幅 */}
+      {session.baseBodyError && (
+        <div className="mx-2.5 mt-2 flex items-start gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 p-2 text-xs text-amber-600 dark:text-amber-400">
+          <AlertTriangle className="size-4 shrink-0 mt-0.5 text-amber-500" />
+          <div className="min-w-0 flex-1 space-y-0.5">
+            <div className="font-semibold text-foreground">{_t("基体模型降级警告")}</div>
+            <div className="text-[11px] text-muted-foreground leading-tight">{session.baseBodyError}</div>
+          </div>
+        </div>
+      )}
+
       {/* 1. 基本形状切换 */}
-      <FormSectionWrapper title={_t('阀块基本形状')} isFirst>
+      <FormSectionWrapper title={_t('阀块基本形状')} isFirst={!session.baseBodyError}>
         <div className="space-y-2">
           <div className="grid grid-cols-4 gap-1.5">
             {TEMPLATE_OPTIONS.map((opt) => {
@@ -146,24 +213,50 @@ export const BaseBodyInspector: React.FC<BaseBodyInspectorProps> = ({ projectId 
           {/* 自定义 STEP 导入面板 */}
           {isStepType && (
             <div className="rounded-md border border-border/70 bg-muted/20 p-2 space-y-2 text-xs">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-1">
                 <div className="flex items-center gap-1.5 font-medium text-foreground truncate min-w-0">
                   <FileCode className="size-4 shrink-0 text-primary" />
-                  <span className="truncate">{doc.baseBody.stepFileName || _t('已导入 STEP 实体')}</span>
+                  <span className="truncate" title={doc.baseBody.stepFileName}>
+                    {doc.baseBody.stepFileName || _t('已导入 STEP 实体')}
+                  </span>
                 </div>
-                <button
-                  type="button"
-                  disabled={isImporting}
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex shrink-0 items-center gap-1 rounded border border-border/80 bg-background px-2 py-1 text-[11px] font-medium text-foreground hover:bg-accent cursor-pointer transition-colors"
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    disabled={isImporting}
+                    title={doc.baseBody.stepFilePath ? _t('从源文件快速重新加载最新模型') : _t('重新选择文件')}
+                    onClick={handleRefreshFromSource}
+                    className="flex shrink-0 items-center gap-1 rounded border border-primary/40 bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary hover:bg-primary/20 cursor-pointer transition-colors"
+                  >
+                    {isImporting ? (
+                      <Loader2 className="size-3 animate-spin" />
+                    ) : (
+                      <RefreshCw className="size-3" />
+                    )}
+                    <span>{_t('从源文件更新')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isImporting}
+                    title={_t('选择其他 STEP 文件')}
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex shrink-0 items-center gap-1 rounded border border-border/80 bg-background px-1.5 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer transition-colors"
+                  >
+                    <FolderOpen className="size-3" />
+                    <span>{_t('更换')}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 源文件物理路径展示 */}
+              <div className="flex items-center gap-1.5 rounded bg-background/60 px-2 py-1 text-[11px] text-muted-foreground border border-border/40 min-w-0">
+                <span className="shrink-0 text-foreground/40 font-mono text-[10px]">{_t('源路径')}:</span>
+                <span
+                  className="truncate font-mono text-[10px] text-foreground/80 select-all"
+                  title={doc.baseBody.stepFilePath || _t('未记录源文件路径 (可通过更换文件重新选择并绑定)')}
                 >
-                  {isImporting ? (
-                    <Loader2 className="size-3 animate-spin" />
-                  ) : (
-                    <RotateCcw className="size-3" />
-                  )}
-                  <span>{_t('重新导入')}</span>
-                </button>
+                  {doc.baseBody.stepFilePath || _t('未绑定物理路径 (请点击更换文件绑定)')}
+                </span>
               </div>
 
               <div className="grid grid-cols-3 gap-1 rounded bg-background/50 p-1.5 text-center font-mono text-[10px] text-muted-foreground border border-border/40">

@@ -1,4 +1,4 @@
-import type { UpdaterApi, SettingsApi, Api, WindowControls, LibraryApi, ProjectApi, FileApi } from './index'
+import type { UpdaterApi, SettingsApi, Api, WindowControls, LibraryApi, ProjectApi, FileApi, CadBridgeApi } from './index'
 
 declare global {
   interface Window {
@@ -9,6 +9,7 @@ declare global {
     libraryApi: LibraryApi
     projectApi: ProjectApi
     fileApi: FileApi
+    cadBridgeApi: CadBridgeApi
   }
 }
 

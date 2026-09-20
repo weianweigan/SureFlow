@@ -12,6 +12,7 @@ import { getCavitySteps, parseCavityBands } from '../../geometry/cavityProfileBu
 export interface CavityProxyRingProps {
   cavity: CavityInstance
   dimensions: [number, number, number]
+  baseBody?: any
   onClick: (hits: MeshRayHit[], e: ThreeEvent<MouseEvent>) => void
   clippingPlanes?: THREE.Plane[]
   onDoubleClick?: (hits: MeshRayHit[]) => void
@@ -21,6 +22,7 @@ export interface CavityProxyRingProps {
 export const CavityProxyRing: FC<CavityProxyRingProps> = ({
   cavity,
   dimensions,
+  baseBody,
   onClick,
   onDoubleClick,
   clippingPlanes = []
@@ -41,7 +43,7 @@ export const CavityProxyRing: FC<CavityProxyRingProps> = ({
     return bands[0]?.r0 ?? 5
   }, [cavity, libraryDoc])
 
-  const basis = useMemo(() => getBoxFaceBasis(cavity.faceId, dimensions), [cavity.faceId, dimensions])
+  const basis = useMemo(() => getBoxFaceBasis(cavity.faceId, dimensions, baseBody), [cavity.faceId, dimensions, baseBody])
   const pos = useMemo<[number, number, number]>(() => {
     const { origin, u: U, v: V, w: W } = basis
     // 孔口位置微偏置 0.02mm 贴合基体外表面，杜绝 Z-fighting

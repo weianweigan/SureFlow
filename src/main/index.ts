@@ -12,6 +12,7 @@ import { queryFileAssociations, configureFileAssociation } from './services/file
 import type { AssociatedExtension } from '../shared/settings/fileAssociations'
 import { setLocale, t } from '../shared/i18n'
 import { resolveSfFilePath } from './services/safeFileProtocol'
+import { startCadSocketBridge, stopCadSocketBridge, getCadSocketBridgeStatus } from './services/cadSocketBridge'
 
 const fileQueue = new FileOpenQueue()
 let mainWindow: BrowserWindow | null = null
@@ -246,6 +247,15 @@ app.whenReady().then(() => {
     return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
   })
 
+  // 检查本地文件是否存在
+  ipcMain.handle('file:exists', async (_event, filePath: string) => {
+    try {
+      return existsSync(filePath)
+    } catch {
+      return false
+    }
+  })
+
   // macOS 开发及运行模式下需显式调用 app.dock.setIcon 设置 Dock 图标
   if (process.platform === 'darwin' && app.dock) {
     const iconPath = getAppIconPath('icon.png')
@@ -257,6 +267,12 @@ app.whenReady().then(() => {
 
   registerLibraryIpc()
   registerProjectIpc()
+
+  // 外部 CAD (SolidWorks 等) Socket 桥接服务（待连接器 Connector 模块统一规划启动，暂不默认开启监听）
+  ipcMain.handle('cad:get-status', () => getCadSocketBridgeStatus())
+  ipcMain.handle('cad:start-server', (_e, port?: number) => startCadSocketBridge(port))
+  ipcMain.handle('cad:stop-server', () => stopCadSocketBridge())
+
   createWindow()
   initAutoUpdater()
 
@@ -326,9 +342,10 @@ app.whenReady().then(() => {
     }
   })
 
-  // 真正退出前设置标记、销毁托盘
+  // 真正退出前设置标记、销毁托盘与套接字服务
   app.on('before-quit', () => {
     isQuitting = true
+    void stopCadSocketBridge()
     destroyTray()
   })
 

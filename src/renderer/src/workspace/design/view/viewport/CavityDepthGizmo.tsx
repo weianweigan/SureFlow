@@ -57,10 +57,10 @@ export const CavityDepthGizmo: FC<CavityDepthGizmoProps> = ({
   const updateCavity = useDesignStore((s) => s.updateCavity)
   const libraryDoc = useLibraryStore((s) => s.doc)
 
-  const snapping=useGeometrySnap(projectId,dimensions)
-  const snapApi=useRef(snapping)
-  snapApi.current=snapping
-  const lastSnapPointer=useRef<PointerEvent|null>(null)
+  const snapping = useGeometrySnap(projectId, dimensions)
+  const snapApi = useRef(snapping)
+  snapApi.current = snapping
+  const lastSnapPointer = useRef<PointerEvent | null>(null)
   const selected = session?.selected
   const activeScheme = useMemo(() => {
     if (!session?.doc) return null
@@ -106,10 +106,10 @@ export const CavityDepthGizmo: FC<CavityDepthGizmoProps> = ({
   const [isDraggingDepth, setIsDraggingDepth] = useState<boolean>(false)
   const [isHovered, setIsHovered] = useState<boolean>(false)
   const [previewDepth, setPreviewDepthState] = useState<number | null>(null)
-  const previewDepthRef=useRef<number|null>(null)
-  const setPreviewDepth=(value:number|null)=>{
-    previewDepthRef.current=value;setPreviewDepthState(value)
-    if (value===null) snapApi.current.clear()
+  const previewDepthRef = useRef<number | null>(null)
+  const setPreviewDepth = (value: number | null) => {
+    previewDepthRef.current = value; setPreviewDepthState(value)
+    if (value === null) snapApi.current.clear()
   }
   const [isSnapped, setIsSnapped] = useState<boolean>(false)
 
@@ -135,7 +135,8 @@ export const CavityDepthGizmo: FC<CavityDepthGizmoProps> = ({
   // 计算当前孔的世界空间基准向量与几何轴向信息
   const geometryInfo = useMemo(() => {
     if (!activeCavity || bottomStepIndex === -1) return null
-    const basis = getBoxFaceBasis(activeCavity.faceId, dimensions)
+    const baseBody = session?.doc?.baseBody
+    const basis = getBoxFaceBasis(activeCavity.faceId, dimensions, baseBody)
     const mouthPos = localToWorldPoint(
       basis,
       activeCavity.u,
@@ -159,7 +160,7 @@ export const CavityDepthGizmo: FC<CavityDepthGizmoProps> = ({
     const ePerp = U.clone().multiplyScalar(-sinAz).addScaledVector(V, cosAz).normalize()
 
     // 深入孔轴单位方向向量 dir: 沿 normalIn (-W) 向 eAz 倾斜 tiltRad
-    const dir = new THREE.Vector3(...cavityAxis(activeCavity, dimensions).direction)
+    const dir = new THREE.Vector3(...cavityAxis(activeCavity, dimensions, baseBody).direction)
 
     // 当前底孔终点世界坐标
     const curTotal = upperDepth + currentBottomDepth
@@ -202,7 +203,8 @@ export const CavityDepthGizmo: FC<CavityDepthGizmoProps> = ({
     tiltRad,
     currentBottomDepth,
     normTilt,
-    normAzimuth
+    normAzimuth,
+    session?.doc?.baseBody
   ])
 
   // 实时孔腔动态拉伸预览几何体
@@ -253,11 +255,11 @@ export const CavityDepthGizmo: FC<CavityDepthGizmoProps> = ({
     dragPlane: THREE.Plane
   } | null>(null)
 
-  useEffect(()=>{
-    setIsDraggingDepth(false);setPreviewDepth(null);setIsSnapped(false)
-    dragStartRef.current=null
-    if(controls) controls.enabled=true
-  },[activeScheme?.cavities,dimensions[0],dimensions[1],dimensions[2],activeCavity?.instanceId])
+  useEffect(() => {
+    setIsDraggingDepth(false); setPreviewDepth(null); setIsSnapped(false)
+    dragStartRef.current = null
+    if (controls) controls.enabled = true
+  }, [activeScheme?.cavities, dimensions[0], dimensions[1], dimensions[2], activeCavity?.instanceId])
 
   // 启动深度手柄拖拽
   const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
@@ -300,7 +302,7 @@ export const CavityDepthGizmo: FC<CavityDepthGizmoProps> = ({
     const raycaster = new THREE.Raycaster()
 
     const onPointerMove = (e: PointerEvent) => {
-      lastSnapPointer.current=e
+      lastSnapPointer.current = e
       const startState = dragStartRef.current
       if (!startState) return
 
@@ -315,9 +317,9 @@ export const CavityDepthGizmo: FC<CavityDepthGizmoProps> = ({
       if (!raycaster.ray.intersectPlane(startState.dragPlane, intersectPoint)) return
 
       const projDist = intersectPoint.clone().sub(startState.mouthPos).dot(startState.dir)
-      const result=snapApi.current.depth(startState.mouthPos.toArray() as Vec3,startState.dir.toArray() as Vec3,Math.max(startState.upperDepth+2,projDist),startState.upperDepth,[activeCavity.instanceId],e.shiftKey)
-      setPreviewDepth(result.depth-startState.upperDepth)
-      setIsSnapped(result.matches.length>0)
+      const result = snapApi.current.depth(startState.mouthPos.toArray() as Vec3, startState.dir.toArray() as Vec3, Math.max(startState.upperDepth + 2, projDist), startState.upperDepth, [activeCavity.instanceId], e.shiftKey)
+      setPreviewDepth(result.depth - startState.upperDepth)
+      setIsSnapped(result.matches.length > 0)
     }
 
     const onPointerUp = (e: PointerEvent) => {
@@ -344,7 +346,7 @@ export const CavityDepthGizmo: FC<CavityDepthGizmoProps> = ({
     }
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if(e.key==='Tab'&&lastSnapPointer.current&&!((e.target as HTMLElement)?.closest?.('input,textarea,select,[contenteditable="true"]'))){e.preventDefault();snapApi.current.next();onPointerMove(lastSnapPointer.current)}
+      if (e.key === 'Tab' && lastSnapPointer.current && !((e.target as HTMLElement)?.closest?.('input,textarea,select,[contenteditable="true"]'))) { e.preventDefault(); snapApi.current.next(); onPointerMove(lastSnapPointer.current) }
       if (e.key === 'Escape') {
         setIsDraggingDepth(false)
         setPreviewDepth(null)
@@ -456,132 +458,130 @@ export const CavityDepthGizmo: FC<CavityDepthGizmoProps> = ({
           ──────────────────────────────────────────────────────── */}
       {/* 孔深轴原点采用恒定屏幕尺寸，避免缩放后消失在孔口边线中。 */}
       <GizmoVisualLayer priority={11000}>
-      <group ref={mouthOriginGroupRef} renderOrder={362}>
-        <mesh geometry={MOUTH_ORIGIN_BACK_GEOM} raycast={() => null}>
-          <meshBasicMaterial color="#0f172a" depthTest={false} depthWrite={false} side={THREE.DoubleSide} />
-        </mesh>
-        <mesh geometry={MOUTH_ORIGIN_RING_GEOM} position={[0, 0, 0.002]} raycast={() => null}>
-          <meshBasicMaterial color="#f8fafc" depthTest={false} depthWrite={false} side={THREE.DoubleSide} />
-        </mesh>
-        <mesh geometry={MOUTH_ORIGIN_CORE_GEOM} position={[0, 0, 0.004]} raycast={() => null}>
-          <meshBasicMaterial color="#fbbf24" depthTest={false} depthWrite={false} side={THREE.DoubleSide} />
-        </mesh>
-      </group>
+        <group ref={mouthOriginGroupRef} renderOrder={362}>
+          <mesh geometry={MOUTH_ORIGIN_BACK_GEOM} raycast={() => null}>
+            <meshBasicMaterial color="#0f172a" depthTest={false} depthWrite={false} side={THREE.DoubleSide} />
+          </mesh>
+          <mesh geometry={MOUTH_ORIGIN_RING_GEOM} position={[0, 0, 0.002]} raycast={() => null}>
+            <meshBasicMaterial color="#f8fafc" depthTest={false} depthWrite={false} side={THREE.DoubleSide} />
+          </mesh>
+          <mesh geometry={MOUTH_ORIGIN_CORE_GEOM} position={[0, 0, 0.004]} raycast={() => null}>
+            <meshBasicMaterial color="#fbbf24" depthTest={false} depthWrite={false} side={THREE.DoubleSide} />
+          </mesh>
+        </group>
 
-      {/* 贯穿孔腔全长中心轴线（统一工程黄色） */}
-      <lineSegments geometry={axisLineGeom} renderOrder={360}>
-        <lineBasicMaterial
-          color={isSnapped ? '#10b981' : isDepthActive ? '#fde047' : '#f59e0b'}
-          linewidth={2.5}
-          depthTest={false}
-          transparent
-          opacity={0.95}
-        />
-      </lineSegments>
+        {/* 贯穿孔腔全长中心轴线（统一工程黄色） */}
+        <lineSegments geometry={axisLineGeom} renderOrder={360}>
+          <lineBasicMaterial
+            color={isSnapped ? '#10b981' : isDepthActive ? '#fde047' : '#f59e0b'}
+            linewidth={5}
+            depthTest={false}
+            transparent
+            opacity={0.95}
+          />
+        </lineSegments>
 
-      {/* 孔底引出虚导引线 */}
-      <lineSegments geometry={axisExtGeom} renderOrder={360}>
-        <lineBasicMaterial
-          color="#94a3b8"
-          depthTest={false}
-          transparent
-          opacity={0.5}
-        />
-      </lineSegments>
+        {/* 孔底引出虚导引线 */}
+        <lineSegments geometry={axisExtGeom} renderOrder={360}>
+          <lineBasicMaterial
+            color="#94a3b8"
+            depthTest={false}
+            transparent
+            opacity={0.5}
+          />
+        </lineSegments>
 
-      {/* ────────────────────────────────────────────────────────
+        {/* ────────────────────────────────────────────────────────
           2. 孔底单一深度推拉手柄（强制 useFrame 恒定 100% 正对用户屏幕）
           ──────────────────────────────────────────────────────── */}
-      <group ref={depthKnobGroupRef} renderOrder={355}>
-        <group
-          onPointerOver={(e) => {
-            e.stopPropagation()
-            setIsHovered(true)
-          }}
-          onPointerOut={() => setIsHovered(false)}
-          onPointerDown={handlePointerDown}
-        >
-          {/* 拾取层 */}
-          <mesh geometry={KNOB_HIT_GEOM}>
-            <meshBasicMaterial transparent opacity={0} depthTest={false} side={THREE.DoubleSide} />
-          </mesh>
+        <group ref={depthKnobGroupRef} renderOrder={355}>
+          <group
+            onPointerOver={(e) => {
+              e.stopPropagation()
+              setIsHovered(true)
+            }}
+            onPointerOut={() => setIsHovered(false)}
+            onPointerDown={handlePointerDown}
+          >
+            {/* 拾取层 */}
+            <mesh geometry={KNOB_HIT_GEOM}>
+              <meshBasicMaterial transparent opacity={0} depthTest={false} side={THREE.DoubleSide} />
+            </mesh>
 
-          {/* 激活/悬停光晕 */}
-          {isDepthActive && (
-            <mesh geometry={KNOB_HALO_GEOM} position={[0, 0, -0.005]}>
+            {/* 激活/悬停光晕 */}
+            {isDepthActive && (
+              <mesh geometry={KNOB_HALO_GEOM} position={[0, 0, -0.005]}>
+                <meshBasicMaterial
+                  color={isSnapped ? '#10b981' : '#fbbf24'}
+                  side={THREE.DoubleSide}
+                  depthTest={false}
+                  transparent
+                  opacity={0.5}
+                />
+              </mesh>
+            )}
+
+            {/* 圆形手柄实体内核（统一工程黄色） */}
+            <mesh geometry={KNOB_CONTRAST_GEOM} position={[0, 0, -0.003]}>
+              <meshBasicMaterial color="#0f172a" side={THREE.DoubleSide} depthTest={false} />
+            </mesh>
+            <mesh geometry={KNOB_CORE_GEOM}>
               <meshBasicMaterial
-                color={isSnapped ? '#10b981' : '#fbbf24'}
+                color={isSnapped ? '#10b981' : isDepthActive ? '#fde047' : '#f59e0b'}
                 side={THREE.DoubleSide}
                 depthTest={false}
-                transparent
-                opacity={0.5}
               />
             </mesh>
-          )}
 
-          {/* 圆形手柄实体内核（统一工程黄色） */}
-          <mesh geometry={KNOB_CONTRAST_GEOM} position={[0, 0, -0.003]}>
-            <meshBasicMaterial color="#0f172a" side={THREE.DoubleSide} depthTest={false} />
-          </mesh>
-          <mesh geometry={KNOB_CORE_GEOM}>
-            <meshBasicMaterial
-              color={isSnapped ? '#10b981' : isDepthActive ? '#fde047' : '#f59e0b'}
-              side={THREE.DoubleSide}
-              depthTest={false}
-            />
-          </mesh>
+            {/* 白金外框 */}
+            <mesh geometry={KNOB_RING_GEOM}>
+              <meshBasicMaterial color="#ffffff" side={THREE.DoubleSide} depthTest={false} />
+            </mesh>
 
-          {/* 白金外框 */}
-          <mesh geometry={KNOB_RING_GEOM}>
-            <meshBasicMaterial color="#ffffff" side={THREE.DoubleSide} depthTest={false} />
-          </mesh>
-
-          {/* 深度读数徽标与右上角斜孔面板唤醒按钮 */}
-          <Html position={[18, 0, 0]} style={{ pointerEvents: isDraggingDepth ? 'none' : 'auto' }}>
-            <div
-              onPointerDown={(e) => e.stopPropagation()}
-              onPointerUp={(e) => e.stopPropagation()}
-              onClick={(e) => e.stopPropagation()}
-              data-html-gizmo="true"
-              className={isDraggingDepth ? 'pointer-events-none font-mono text-[11px] text-amber-300 whitespace-nowrap select-none ml-6 -translate-y-1/2' : `flex items-center gap-1.5 px-2 py-0.5 rounded-[2px] font-mono text-[10px] tracking-tight border shadow-md whitespace-nowrap select-none -translate-y-1/2 ml-1.5 ${
-                isSnapped
+            {/* 深度读数徽标与右上角斜孔面板唤醒按钮 */}
+            <Html position={[18, 0, 0]} style={{ pointerEvents: isDraggingDepth ? 'none' : 'auto' }}>
+              <div
+                onPointerDown={(e) => e.stopPropagation()}
+                onPointerUp={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+                data-html-gizmo="true"
+                className={isDraggingDepth ? 'pointer-events-none font-mono text-[11px] text-amber-300 whitespace-nowrap select-none ml-6 -translate-y-1/2' : `flex items-center gap-1.5 px-2 py-0.5 rounded-[2px] font-mono text-[10px] tracking-tight border shadow-md whitespace-nowrap select-none -translate-y-1/2 ml-1.5 ${isSnapped
                   ? 'bg-emerald-950/95 text-emerald-300 border-emerald-400'
                   : 'bg-slate-900/95 text-slate-100 border-slate-700'
-              }`}
-            >
-              {!isDraggingDepth && <span className={`font-bold ${isSnapped ? 'text-emerald-400' : 'text-amber-400'}`}>
-                {_t("底孔深")}
-              </span>}
-              {!isDraggingDepth && <span className="w-[1px] h-2.5 bg-slate-700" />}
-              <span className="font-semibold">
-                {`${currentBottomDepth.toFixed(2)} mm`}
-              </span>
+                  }`}
+              >
+                {!isDraggingDepth && <span className={`font-bold ${isSnapped ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {_t("底孔深")}
+                </span>}
+                {!isDraggingDepth && <span className="w-[1px] h-2.5 bg-slate-700" />}
+                <span className="font-semibold">
+                  {`${currentBottomDepth.toFixed(2)} mm`}
+                </span>
 
-              {/* 唤起右上角斜孔精细化调节 Popover 按钮 */}
-              {!isDraggingDepth && <button
-                type="button"
-                data-html-gizmo="true"
-                title={_t("在右上角展开斜孔精细化调整面板 (倾角与方位角)")}
-                className={`ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold transition-all border cursor-pointer active:scale-95 ${
-                  isInclinedPopoverOpen
+                {/* 唤起右上角斜孔精细化调节 Popover 按钮 */}
+                {!isDraggingDepth && <button
+                  type="button"
+                  data-html-gizmo="true"
+                  title={_t("在右上角展开斜孔精细化调整面板 (倾角与方位角)")}
+                  className={`ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold transition-all border cursor-pointer active:scale-95 ${isInclinedPopoverOpen
                     ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold shadow-xs'
                     : hasTilt
                       ? 'bg-amber-500/30 text-amber-300 hover:bg-amber-500 hover:text-slate-950 border-amber-500/50'
                       : 'bg-slate-800/90 text-slate-300 hover:bg-amber-500 hover:text-slate-950 hover:border-amber-400 border-slate-700'
-                }`}
-                onPointerDown={(e) => e.stopPropagation()}
-                onPointerUp={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onOpenInclinedPopover?.()
-                }}
-              >
-                {hasTilt ? _msg`⤹ 斜孔 ${normTilt.toFixed(1)}°` : _t("⤹ 斜孔")}
-              </button>}
-            </div>
-          </Html>
+                    }`}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onPointerUp={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onOpenInclinedPopover?.()
+                  }}
+                >
+                  {hasTilt ? _msg`⤹ 斜孔 ${normTilt.toFixed(1)}°` : _t("⤹ 斜孔")}
+                </button>}
+              </div>
+            </Html>
+          </group>
         </group>
-      </group>
       </GizmoVisualLayer>
     </group>
   )

@@ -22,8 +22,8 @@ export function profileBands(steps: Step[]): ProfileBand[] {
     return band
   })
 }
-export function cavityAxis(cavity: CavityInstance, dimensions: Vec3) {
-  const basis = getBoxFaceBasis(cavity.faceId, dimensions)
+export function cavityAxis(cavity: CavityInstance, dimensions: Vec3, baseBody?: any) {
+  const basis = getBoxFaceBasis(cavity.faceId, dimensions, baseBody)
   const tilt = (cavity.tiltAngle ?? 0) * Math.PI / 180
   const az = (cavity.azimuth ?? cavity.rotation ?? 0) * Math.PI / 180
   const direction = unit(add(mul(basis.w, -Math.cos(tilt)), mul(add(mul(basis.u, Math.cos(az)), mul(basis.v, Math.sin(az))), Math.sin(tilt))))

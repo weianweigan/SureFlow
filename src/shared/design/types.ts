@@ -170,6 +170,8 @@ export interface BaseBodyConfig {
   stepContent?: string
   /** 导入的 STEP 原始文件名 */
   stepFileName?: string
+  /** 导入的 STEP 原始文件绝对路径（供快速从源文件更新） */
+  stepFilePath?: string
   /** 导入的 STEP 几何网格缓存 */
   stepMesh?: {
     positions: Float32Array | number[]

@@ -58,8 +58,10 @@ export function useGeometrySnap(projectId:string, dimensions:Vec3) {
     clear,
     next:()=>{cycle.current++;cycleAnchor.current=lastRaw.current;previous.current=[]},
     planar:(faceId:string,u:number,v:number,dof:'u'|'v'|'uv',excluded:string[]=[],bypass=false,direction?:Vec3)=>{
-      track(localToWorldPoint(getBoxFaceBasis(faceId,dimensions),u,v))
-      const input={...options(excluded,bypass),basis:getBoxFaceBasis(faceId,dimensions),u,v,dof,direction}
+      const body = useDesignStore.getState().projects[projectId]?.doc.baseBody
+      const basis = getBoxFaceBasis(faceId, dimensions, body)
+      track(localToWorldPoint(basis, u, v))
+      const input={...options(excluded,bypass),basis,u,v,dof,direction}
       const result=snapPlanar(input)
       publish(result.matches,input.nearbyDistances?measurePlanar({...input,u:result.u,v:result.v},result.matches,previousDimensions.current):[]);return result
     },

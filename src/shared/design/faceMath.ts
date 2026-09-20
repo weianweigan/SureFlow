@@ -17,6 +17,68 @@ export interface FaceBasis {
 }
 
 /**
+ * 根据平面单位法向量严格计算正交右手坐标基底 (U, V, W)，满足：
+ * 1. |U| = 1, |V| = 1, |W| = 1
+ * 2. U · V = 0, U · W = 0, V · W = 0
+ * 3. U × V = W (严格右手定则)
+ * 4. 对于倾斜面/倒角斜面，U 沿等高水平线（切线），V 沿斜面爬升正方向（V_z > 0）
+ */
+export function computeOrthonormalPlaneBasis(normal: [number, number, number]): {
+  u: [number, number, number]
+  v: [number, number, number]
+  w: [number, number, number]
+} {
+  let [nx, ny, nz] = normal
+  const len = Math.hypot(nx, ny, nz)
+  if (len > 1e-9) {
+    nx /= len
+    ny /= len
+    nz /= len
+  } else {
+    nx = 0
+    ny = 0
+    nz = 1
+  }
+  const w: [number, number, number] = [nx, ny, nz]
+
+  // 1. 若法向非常接近顶面或底面 (+Z / -Z)
+  if (Math.abs(nz) > 0.999) {
+    const sign = Math.sign(nz) || 1
+    return {
+      u: [1, 0, 0],
+      v: sign > 0 ? [0, 1, 0] : [0, -1, 0],
+      w
+    }
+  }
+
+  // 2. 对于侧面与任意斜面，选取全局参考向上矢量 up = [0, 0, 1]
+  // 面内水平切线方向 u = normalize(up × w) = [-ny, nx, 0]
+  let ux = -ny
+  let uy = nx
+  let uz = 0
+  const ulen = Math.hypot(ux, uy)
+  if (ulen > 1e-6) {
+    ux /= ulen
+    uy /= ulen
+  } else {
+    ux = 1
+    uy = 0
+  }
+  const u: [number, number, number] = [ux, uy, uz]
+
+  // 3. 纵向轴 v = w × u，确保 u × v = w
+  const vx = ny * uz - nz * uy
+  const vy = nz * ux - nx * uz
+  const vz = nx * uy - ny * ux
+
+  const vlen = Math.hypot(vx, vy, vz)
+  const v: [number, number, number] =
+    vlen > 1e-6 ? [vx / vlen, vy / vlen, vz / vlen] : [0, 1, 0]
+
+  return { u, v, w }
+}
+
+/**
  * 根据基体配置与面 ID 计算面基准坐标系（World Origin Projection Method）
  * 严格覆盖长方体、L型、T型凹槽台阶面以及 STEP 导入面
  */
@@ -125,26 +187,32 @@ export function getBaseFaceBasis(
   if (baseBody?.faces) {
     const matched = baseBody.faces.find((f) => f.id.toLowerCase() === fid)
     if (matched) {
-      const [nx, ny, nz] = matched.normal
-      const w: [number, number, number] = [nx, ny, nz]
-      let u: [number, number, number]
-      let v: [number, number, number]
-      if (Math.abs(nz) > 0.8) {
-        u = [1, 0, 0]
-        v = nz > 0 ? [0, 1, 0] : [0, -1, 0]
-      } else if (Math.abs(ny) > 0.8) {
-        u = [1, 0, 0]
-        v = [0, 0, 1]
-      } else {
-        u = [0, 1, 0]
-        v = [0, 0, 1]
+      const computed = computeOrthonormalPlaneBasis(matched.normal)
+      let u: [number, number, number] = computed.u
+      let v: [number, number, number] = computed.v
+      if (
+        matched.u &&
+        matched.v &&
+        Math.abs(matched.u[0] * matched.normal[0] + matched.u[1] * matched.normal[1] + matched.u[2] * matched.normal[2]) < 0.05 &&
+        Math.abs(matched.v[0] * matched.normal[0] + matched.v[1] * matched.normal[1] + matched.v[2] * matched.normal[2]) < 0.05 &&
+        Math.abs(matched.u[0] * matched.v[0] + matched.u[1] * matched.v[1] + matched.u[2] * matched.v[2]) < 0.05
+      ) {
+        u = [matched.u[0], matched.u[1], matched.u[2]]
+        v = [matched.v[0], matched.v[1], matched.v[2]]
       }
+
+      const origin: [number, number, number] = matched.origin
+        ? [matched.origin[0], matched.origin[1], matched.origin[2]]
+        : matched.centerPoint
+          ? [matched.centerPoint[0], matched.centerPoint[1], matched.centerPoint[2]]
+          : [0, 0, 0]
+
       return {
         id: faceId,
-        origin: matched.origin ? [...matched.origin] : [0, 0, 0],
+        origin,
         u,
         v,
-        w
+        w: computed.w
       }
     }
   }
@@ -215,12 +283,15 @@ export function detectBaseBodyFace(
     for (const f of body.faces) {
       const [fnx, fny, fnz] = f.normal
       const dot = nx * fnx + ny * fny + nz * fnz
-      if (dot > 0.8) {
+      if (dot > 0.7) {
         let planeDist = 0
-        if (point && f.origin) {
-          planeDist = Math.abs((px - f.origin[0]) * fnx + (py - f.origin[1]) * fny + (pz - f.origin[2]) * fnz)
+        if (point) {
+          const ref = f.origin || f.centerPoint
+          if (ref) {
+            planeDist = Math.abs((px - ref[0]) * fnx + (py - ref[1]) * fny + (pz - ref[2]) * fnz)
+          }
         }
-        if (planeDist < 5.0) {
+        if (planeDist < 15.0) {
           let centerDist = 0
           if (point && f.centerPoint) {
             centerDist = Math.hypot(px - f.centerPoint[0], py - f.centerPoint[1], pz - f.centerPoint[2])
