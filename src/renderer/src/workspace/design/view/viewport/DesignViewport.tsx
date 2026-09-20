@@ -919,11 +919,15 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
     toggleSection
   ])
 
-  if (!session) return null
-  const { doc, dirty, saving, selected, undoStack, redoStack } = session
-  const [sx, sy, sz] = doc.baseBody.dimensions
+  const doc = session?.doc
+  const dirty = session?.dirty
+  const saving = session?.saving
+  const selected = session?.selected
+  const undoStack = session?.undoStack
+  const redoStack = session?.redoStack
+  const [sx, sy, sz] = doc?.baseBody?.dimensions ?? [100, 100, 100]
   const center = useMemo(() => new THREE.Vector3(sx / 2, sy / 2, sz / 2), [sx, sy, sz])
-  const activeScheme = doc.schemes.find((s) => s.id === doc.activeSchemeId) || doc.schemes[0]
+  const activeScheme = doc ? (doc.schemes.find((s) => s.id === doc.activeSchemeId) || doc.schemes[0]) : undefined
 
   // 穿透拾取重叠多孔循环游标与屏幕点击位置追踪
   const cycleRef = useRef<{
@@ -986,14 +990,14 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
 
   // 解析材质配置
   const materialConfig: MaterialConfig = resolveMaterialConfig(
-    doc.baseBody.material,
-    doc.baseBody.materialConfig
+    doc?.baseBody?.material,
+    doc?.baseBody?.materialConfig
   )
 
   // 处理在 3D 模型表面射线拾取：优先穿透外表面抓取内部孔腔并支持重叠多孔循环切换
   const handleMeshClick = useCallback(
     (hits: MeshRayHit[], rawEvent?: ThreeEvent<MouseEvent>) => {
-      if (usePlacementStore.getState().isPlacing) return
+      if (!session || !doc || usePlacementStore.getState().isPlacing) return
       const isMulti = rawEvent ? Boolean(rawEvent.shiftKey || rawEvent.ctrlKey || rawEvent.metaKey) : false
 
       // 1. 穿透遍历所有命中的三角面，提取其中的所有孔腔 ID（按射线深度从小到大排序）
@@ -1052,7 +1056,7 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
           }
         }
         if (hit.normal) {
-          const detected = detectBaseBodyFace(hit.normal, hit.point, doc.baseBody)
+          const detected = doc?.baseBody ? detectBaseBodyFace(hit.normal, hit.point, doc.baseBody) : null
           if (detected) {
             setFaceClickPoint(hit.point.clone())
             selectFeature(projectId, { type: 'face', id: detected })
@@ -1064,13 +1068,13 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
       // 3. 兜底基体选择
       selectFeature(projectId, { type: 'base', id: 'base' })
     },
-    [csgState.triangleTags, doc.baseBody, handleCavitySelect, projectId, selectFeature]
+    [csgState.triangleTags, doc?.baseBody, handleCavitySelect, projectId, selectFeature, session]
   )
 
   // 双击始终提升到组合孔；独立孔聚焦。
   const handleMeshDoubleClick = useCallback(
     (hits: MeshRayHit[]) => {
-      if (usePlacementStore.getState().isPlacing || !hits.length) return
+      if (!session || !doc || usePlacementStore.getState().isPlacing || !hits.length) return
       // 检查命中的首个孔腔
       for (const hit of hits) {
         if (hit.cavityId || (hit.faceIndex != null && csgState.triangleTags?.[hit.faceIndex])) {
@@ -1098,20 +1102,24 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
       // 命中基体面双击选中基体
       selectFeature(projectId, { type: 'base', id: 'base' })
     },
-    [activeScheme, csgState.triangleTags, focusOnCavity, projectId, selectFeature, session?.selected]
+    [activeScheme, csgState.triangleTags, doc, focusOnCavity, projectId, selectFeature, session]
   )
 
   const activeSolidGeom = csgState.solidGeometry || fallbackGeom?.box || null
   const activeEdgeGeom = csgState.edgeGeometry || fallbackGeom?.edges || null
 
   // 材质预设显示名
-  const materialLabel = doc.baseBody.material || materialConfig.presetId
+  const materialLabel = doc?.baseBody?.material || materialConfig.presetId
 
   // 采集配套二进制缓存、标准 GLB 与预览位图 (PRD-FR-04-07 §2)
   const getSaveExtra = useCallback(async () => {
     let cacheBuffer: ArrayBuffer | null = null
     let glbBuffer: ArrayBuffer | null = null
     let previewImageBase64: string | null = null
+
+    if (!doc) {
+      return { cacheBuffer, glbBuffer, previewImageBase64 }
+    }
 
     // 保留当前观察方向，自动适配完整模型后捕获正常渲染帧。
     try {
@@ -1181,17 +1189,19 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
     }
 
     return { cacheBuffer, glbBuffer, previewImageBase64 }
-  }, [activeEdgeGeom, activeSolidGeom, csgState.solidGeometry, csgState.triangleTags, doc.baseBody.dimensions, activeScheme?.cavities, materialConfig.color])
+  }, [activeEdgeGeom, activeSolidGeom, csgState.solidGeometry, csgState.triangleTags, doc, activeScheme?.cavities, materialConfig.color, sx, sy, sz])
 
   const handleSave = useCallback(async () => {
+    if (!session) return
     const extra = await getSaveExtra()
     await saveProject(projectId, extra)
-  }, [getSaveExtra, projectId, saveProject])
+  }, [getSaveExtra, projectId, saveProject, session])
 
   const handleSaveAs = useCallback(async () => {
+    if (!session) return
     const extra = await getSaveExtra()
     await saveAsProject(projectId, extra)
-  }, [getSaveExtra, projectId, saveAsProject])
+  }, [getSaveExtra, projectId, saveAsProject, session])
 
   const handleExportPNG = useCallback(async () => {
     try {
@@ -1200,13 +1210,13 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
         
         const a = document.createElement('a')
         a.href = base64
-        a.download = `${session.filePath ? session.filePath.split(/[\\/]/).pop()?.replace('.sfb', '') : 'Preview'}.png`
+        a.download = `${session?.filePath ? session.filePath.split(/[\\/]/).pop()?.replace('.sfb', '') : 'Preview'}.png`
         a.click()
       }
     } catch (e) {
       console.error('[DesignViewport] Export PNG Failed:', e)
     }
-  }, [session.filePath, sx, sy, sz])
+  }, [session?.filePath, sx, sy, sz])
 
   // 拦截全局 Ctrl+S / Cmd+S 快捷键，确保通过快捷键保存同样自动生成配套 .cache, .glb 与 .png
   useEffect(() => {
@@ -1226,6 +1236,8 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
   }, [handleSave, handleSaveAs])
+
+  if (!session || !doc) return null
 
   return (
     <div className="flex h-full w-full flex-col bg-background">
@@ -1580,11 +1592,13 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
           )}
 
           {/* 基体 3D 驱动尺寸与表面法向推拉 Gizmo */}
-          <BlockDimensionGizmo
-            projectId={projectId}
-            dimensions={[sx, sy, sz]}
-            selectedFaceId={selected?.type === 'face' ? selected.id : null}
-          />
+          {doc.baseBody.type !== 'step' && (
+            <BlockDimensionGizmo
+              projectId={projectId}
+              dimensions={[sx, sy, sz]}
+              selectedFaceId={selected?.type === 'face' ? selected.id : null}
+            />
+          )}
 
           {/* 选中孔腔时显示 2D 贴面平移 Gizmo（支持单孔、多孔与同面成组移动） */}
           <PlanarMoveGizmo projectId={projectId} dimensions={[sx, sy, sz]} />

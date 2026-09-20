@@ -22,7 +22,6 @@ interface OriginAxesProps {
  */
 export const OriginAxes: FC<OriginAxesProps> = ({ visible = true }) => {
   _useLocale()
-  if (!visible) return null
 
   const groupRef = useRef<THREE.Group>(null)
   const { camera } = useThree()
@@ -60,10 +59,12 @@ export const OriginAxes: FC<OriginAxesProps> = ({ visible = true }) => {
   // 恒定屏幕像素大小（约 60px）
   const originPos = useMemo(() => new THREE.Vector3(0, 0, 0), [])
   useFrame(() => {
-    if (!groupRef.current) return
+    if (!visible || !groupRef.current) return
     const s = computeScreenPixelScale(camera, originPos, 60)
     groupRef.current.scale.set(s, s, s)
   })
+
+  if (!visible) return null
 
   return (
     <group ref={groupRef} name="OriginAxes" userData={{ isOriginAxes: true }} position={[0, 0, 0]} renderOrder={240}>

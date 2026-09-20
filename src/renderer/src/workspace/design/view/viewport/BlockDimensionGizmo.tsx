@@ -46,11 +46,6 @@ export const BlockDimensionGizmo: FC<BlockDimensionGizmoProps> = ({
   const baseBody = session?.doc?.baseBody
   const selected = session?.selected
 
-  // 导入的 STEP 模型不支持几何推拉手柄
-  if (baseBody?.type === 'step') {
-    return null
-  }
-
   // ─── 1. 三向驱动尺寸内联编辑状态 ───
   const [editingAxis, setEditingAxis] = useState<'x' | 'y' | 'z' | null>(null)
   const [inputValue, setInputValue] = useState<string>('')
@@ -257,7 +252,7 @@ export const BlockDimensionGizmo: FC<BlockDimensionGizmoProps> = ({
 
   // 动态恒定像素缩放与跟随推拉手柄变动位置
   useFrame(() => {
-    if (!faceInfo) return
+    if (!faceInfo || baseBody?.type === 'step') return
 
     const delta = previewDim !== null ? (previewDim - initialDim) * faceInfo.sign : 0
     const curCenter = faceInfo.center.clone().addScaledVector(faceInfo.normal, delta)
@@ -371,6 +366,10 @@ export const BlockDimensionGizmo: FC<BlockDimensionGizmoProps> = ({
           ? 'hover:border-emerald-400'
           : 'hover:border-amber-400'
     return `bg-slate-900/95 text-slate-100 border-slate-700 ${hoverBorder} shadow-md hover:bg-slate-850`
+  }
+
+  if (!session || baseBody?.type === 'step') {
+    return null
   }
 
   return (
