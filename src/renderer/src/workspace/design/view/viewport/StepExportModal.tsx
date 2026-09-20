@@ -21,6 +21,7 @@ import {
   Palette
 } from 'lucide-react'
 import { useDesignStore } from '../../model/designStore'
+import { useAnalysisStore } from '../../model/analysisStore'
 import { useLibraryStore } from '../../../library/viewmodel/libraryStore'
 import { cadBridge } from '../../worker/cad/cadWorkerBridge'
 import { getBoxFaceBasis, getCavityWorldMatrix } from '@shared/design/faceMath'
@@ -327,6 +328,52 @@ export const StepExportModal: FC<StepExportModalProps> = ({ projectId, isOpen, o
               </div>
             </div>
           </div>
+
+          {/* 设计检查状态提示 (PRD-FR-04-15 §13.3) */}
+          {(() => {
+            const schemeAnalysis = useAnalysisStore.getState().resultsByScheme[activeSchemeId]
+            const issues = schemeAnalysis?.issues || []
+            const errorCount = issues.filter((i) => i.severity === 'error').length
+            const warningCount = issues.filter((i) => i.severity === 'warning').length
+            const isComputing = schemeAnalysis?.isComputing
+
+            if (isExporting || successInfo) return null
+
+            if (isComputing) {
+              return (
+                <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/20 p-2.5 text-xs text-muted-foreground">
+                  <span className="size-2 rounded-full bg-primary animate-ping shrink-0" />
+                  <span>当前方案正在后台执行设计检查，可直接继续导出...</span>
+                </div>
+              )
+            }
+
+            if (errorCount > 0 || warningCount > 0) {
+              return (
+                <div className="flex items-center justify-between rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-500">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="size-4 shrink-0 text-amber-500" />
+                    <span>
+                      设计检查发现 {errorCount > 0 ? `${errorCount} 项错误 ` : ''}
+                      {warningCount > 0 ? `${warningCount} 项警告` : ''}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose()
+                      useAnalysisStore.getState().togglePanel(true)
+                    }}
+                    className="px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-foreground font-medium transition-colors cursor-pointer"
+                  >
+                    返回查看
+                  </button>
+                </div>
+              )
+            }
+
+            return null
+          })()}
 
           {/* 进度条与阶段状态指示 */}
           {isExporting && (

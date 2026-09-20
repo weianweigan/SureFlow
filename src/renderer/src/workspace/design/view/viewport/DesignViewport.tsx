@@ -22,8 +22,13 @@ import {
   Eye,
   ChevronDown,
   Image as ImageIcon,
-  Box
+  Box,
+  CheckCircle2,
+  Ruler
 } from 'lucide-react'
+import { ActiveClearanceBar } from '../checks/ActiveClearanceBar'
+import { AnalysisEvidenceOverlay } from './AnalysisEvidenceOverlay'
+import { useAnalysisStore } from '../../model/analysisStore'
 import {
   BackgroundPreset,
   BACKGROUND_PRESETS,
@@ -387,6 +392,18 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
   const [isInclinedPopoverOpen, setIsInclinedPopoverOpen] = useState(false)
   const [faceClickPoint, setFaceClickPoint] = useState<THREE.Vector3 | null>(null)
   const selectedCavityId = session?.selected?.type === 'cavity' ? session.selected.id : null
+
+  // 设计检查与主动间隙状态 (PRD-FR-04-15)
+  const isChecksOpen = useAnalysisStore((s) => s.isOpen)
+  const toggleChecksPanel = useAnalysisStore((s) => s.togglePanel)
+  const isActiveClearanceOpen = useAnalysisStore((s) => s.isActiveClearanceOpen)
+  const setActiveClearanceOpen = useAnalysisStore((s) => s.setActiveClearanceOpen)
+  const clearanceObjects = useAnalysisStore((s) => s.clearanceObjects)
+  const currentActiveScheme = session?.doc.schemes.find((s) => s.id === session.doc.activeSchemeId) || session?.doc.schemes[0]
+  const schemeAnalysis = useAnalysisStore((s) => s.resultsByScheme[currentActiveScheme?.id || 'default'])
+  const analysisIssues = schemeAnalysis?.issues || []
+  const errorCount = analysisIssues.filter((i) => i.severity === 'error').length
+  const warningCount = analysisIssues.filter((i) => i.severity === 'warning').length
 
   // 选中特征改变或非孔腔时，自动关闭斜孔 Popover
   useEffect(() => {
@@ -765,8 +782,13 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
   const selectedFaceId = session?.selected?.type === 'face' ? session.selected.id : null
   const activeSchemeForSelection = session?.doc.schemes.find((s) => s.id === session?.doc.activeSchemeId) || session?.doc.schemes[0]
   const selectedCavityIds = useMemo(() => {
-    return getSelectedCavityIds(session?.selected, activeSchemeForSelection)
-  }, [session?.selected, activeSchemeForSelection])
+    const baseIds = getSelectedCavityIds(session?.selected, activeSchemeForSelection)
+    if (!isActiveClearanceOpen) return baseIds
+    const clearanceCavityIds = clearanceObjects
+      .filter((o) => o.kind === 'cavity')
+      .map((o) => (o as any).instanceId)
+    return Array.from(new Set([...baseIds, ...clearanceCavityIds]))
+  }, [session?.selected, activeSchemeForSelection, isActiveClearanceOpen, clearanceObjects])
   useEffect(() => {
     if (!rawCsgRef.current || !session) return
     const { doc } = session
@@ -947,6 +969,7 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
 
       if (e.key === 'Escape') {
         selectFeature(projectId, null)
+        useAnalysisStore.getState().selectIssue(null)
         if (orbitControlsRef.current) {
           orbitControlsRef.current.enabled = true
         }
@@ -990,6 +1013,12 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
   const handleCavitySelect = useCallback(
     (cavId: string, isMulti: boolean = false) => {
       if (!session || usePlacementStore.getState().isPlacing) return
+
+      // 处于主动间隙分析模式：直接多选追加/切换并同步高亮
+      if (useAnalysisStore.getState().isActiveClearanceOpen) {
+        useAnalysisStore.getState().pickClearanceObject({ kind: 'cavity', instanceId: cavId })
+        return
+      }
 
       // 视口单击始终选中该子孔个体（若属于组合孔，移动 Gizmo 将以此子孔为基准带动整个组合孔刚体移动）
       const targetFeature: FeatureSelectionItem = isMulti
@@ -1095,6 +1124,10 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
           const tag = csgState.triangleTags[hit.faceIndex]
           if (tag.type === 'face' && tag.id !== 'base') {
             setFaceClickPoint(hit.point.clone())
+            if (useAnalysisStore.getState().isActiveClearanceOpen) {
+              useAnalysisStore.getState().pickClearanceObject({ kind: 'base-face', faceId: tag.id })
+              return
+            }
             selectFeature(projectId, { type: 'face', id: tag.id })
             return
           }
@@ -1103,13 +1136,20 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
           const detected = doc?.baseBody ? detectBaseBodyFace(hit.normal, hit.point, doc.baseBody) : null
           if (detected) {
             setFaceClickPoint(hit.point.clone())
+            if (useAnalysisStore.getState().isActiveClearanceOpen) {
+              useAnalysisStore.getState().pickClearanceObject({ kind: 'base-face', faceId: detected })
+              return
+            }
             selectFeature(projectId, { type: 'face', id: detected })
             return
           }
         }
       }
 
-      // 3. 兜底基体选择
+      // 3. 兜底基体选择（间隙分析模式下不切换为基体）
+      if (useAnalysisStore.getState().isActiveClearanceOpen) {
+        return
+      }
       selectFeature(projectId, { type: 'base', id: 'base' })
     },
     [csgState.triangleTags, doc?.baseBody, handleCavitySelect, projectId, selectFeature, session]
@@ -1386,6 +1426,50 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
           >
             <Redo2 className="size-3.5" />
           </button>
+
+          <div className="h-4 w-px bg-border mx-1" />
+
+          {/* 设计检查与间隙分析快捷入口 (PRD-FR-04-15 §4) */}
+          <button
+            type="button"
+            title={
+              errorCount > 0 || warningCount > 0
+                ? `${_t("设计检查 (底栏)")} (${errorCount} 错误, ${warningCount} 警告)`
+                : _t("设计检查 (底栏)")
+            }
+            onClick={() => toggleChecksPanel()}
+            className={cn(
+              "relative flex size-7 items-center justify-center rounded-md border transition-colors cursor-pointer",
+              isChecksOpen
+                ? "border-primary/50 bg-primary/10 text-primary"
+                : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
+            )}
+          >
+            <CheckCircle2 className="size-3.5" />
+            {errorCount > 0 ? (
+              <span className="absolute -top-1 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-destructive px-1 font-mono text-[9px] font-bold leading-none text-destructive-foreground ring-1 ring-background select-none">
+                {errorCount > 99 ? "99+" : errorCount}
+              </span>
+            ) : warningCount > 0 ? (
+              <span className="absolute -top-1 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-amber-500 px-1 font-mono text-[9px] font-bold leading-none text-white ring-1 ring-background select-none">
+                {warningCount > 99 ? "99+" : warningCount}
+              </span>
+            ) : null}
+          </button>
+
+          <button
+            type="button"
+            title={_t("主动间隙分析")}
+            onClick={() => setActiveClearanceOpen(!isActiveClearanceOpen)}
+            className={cn(
+              "flex size-7 items-center justify-center rounded-md border transition-colors cursor-pointer",
+              isActiveClearanceOpen
+                ? "border-cyan-500/50 bg-cyan-500/10 text-cyan-600 dark:text-cyan-400"
+                : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
+            )}
+          >
+            <Ruler className="size-3.5" />
+          </button>
         </div>
 
         {/* 右侧：视角预设、全屏居中、视口显示与辅助设置 Popover */}
@@ -1538,6 +1622,11 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
         <SnapStatusOverlay projectId={projectId} />
         <Canvas
           orthographic
+          onPointerMissed={(e) => {
+            if (!e || e.type === 'click') {
+              useAnalysisStore.getState().selectIssue(null)
+            }
+          }}
           gl={{
             preserveDrawingBuffer: true,
             localClippingEnabled: true,
@@ -1734,7 +1823,13 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
 
           {/* WebGL 性能采样器（数据直推 usePerfStore，零触碰 DesignViewport） */}
           <PerformanceCollector active={showPerf} />
+
+          {/* 3D 设计检查尺寸线证据与主动间隙标注叠加层 (PRD-FR-04-15 §10) */}
+          <AnalysisEvidenceOverlay projectId={projectId} />
         </Canvas>
+
+        {/* 主动间隙分析悬浮操作工具条 (PRD-FR-04-15 §9) */}
+        <ActiveClearanceBar projectId={projectId} />
 
         {/* 悬浮性能评测 HUD 面板（独立局部订阅） */}
         {showPerf && (

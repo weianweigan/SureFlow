@@ -62,6 +62,7 @@ export function VerticalResizer({
 export interface HorizontalResizerProps {
   value: number
   onChange: (v: number) => void
+  onRelease?: (v: number) => void
   min: number
   max: number
   reverse?: boolean
@@ -74,6 +75,7 @@ export interface HorizontalResizerProps {
 export function HorizontalResizer({
   value,
   onChange,
+  onRelease,
   min,
   max,
   reverse = false,
@@ -85,10 +87,12 @@ export function HorizontalResizer({
     const startY = e.clientY
     const startH = value
     const clamp = (h: number): number => Math.min(max, Math.max(min, h))
+    let lastRawH = startH
 
     const onMove = (ev: MouseEvent): void => {
       const delta = reverse ? startY - ev.clientY : ev.clientY - startY
-      onChange(clamp(startH + delta))
+      lastRawH = startH + delta
+      onChange(clamp(lastRawH))
     }
 
     const onUp = (): void => {
@@ -96,6 +100,9 @@ export function HorizontalResizer({
       window.removeEventListener('mouseup', onUp)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
+      if (onRelease) {
+        onRelease(lastRawH)
+      }
     }
 
     document.body.style.cursor = 'row-resize'

@@ -168,8 +168,23 @@ describe('Manifold-3D vs OCCT STEP Volume and Position Comparison', () => {
     expect(volRelDiff).toBeLessThan(0.0005)
 
     const areaRelDiff = Math.abs(areaM - areaOcc) / areaOcc
-    expect(areaRelDiff).toBeLessThan(0.0005)
+    expect(areaRelDiff).toBeLessThan(0.0001)
 
     parsedShape.delete()
+  })
+
+  it('verifies Manifold minGap API behavior between two cylinders', () => {
+    const c1 = Manifold.cylinder(30, 5, 5, 32, false)
+    // 平移 20mm (中心距 20mm，各自半径 5mm，间隙应为 20 - 10 = 10mm)
+    const c2 = Manifold.cylinder(30, 5, 5, 32, false).translate([20, 0, 0])
+    const gap = c1.minGap(c2, 50)
+    console.log('[Manifold minGap Test] Expected ~10mm, got:', gap)
+    expect(gap).toBeCloseTo(10, 1)
+
+    // 相交圆柱：中心距 8mm (小于 5+5=10mm)
+    const c3 = Manifold.cylinder(30, 5, 5, 32, false).translate([8, 0, 0])
+    const overlapGap = c1.minGap(c3, 50)
+    console.log('[Manifold minGap Overlap Test] Expected 0, got:', overlapGap)
+    expect(overlapGap).toBe(0)
   })
 })

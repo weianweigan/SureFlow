@@ -3,6 +3,7 @@ import { useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { getCavityWorldMatrix, getBoxFaceBasis } from '@shared/design/faceMath'
 import { useDesignStore, getSelectedFeatures } from '../../model/designStore'
+import { useAnalysisStore } from '../../model/analysisStore'
 import { usePlacementStore } from '../../model/placementStore'
 import { useLibraryStore } from '../../../library/viewmodel/libraryStore'
 import { buildCavityThreeGeometry, getCavitySteps } from '../../geometry/cavityProfileBuilder'
@@ -101,6 +102,7 @@ export function MarqueeSelection({ projectId, dimensions }: {
         raycaster.setFromCamera(new THREE.Vector2((e.clientX - rect.left) / rect.width * 2 - 1, 1 - (e.clientY - rect.top) / rect.height * 2), camera)
         if (!raycastSelection(raycaster.ray, scene).length && !start.additive) {
           useDesignStore.getState().selectFeature(projectId, null)
+          useAnalysisStore.getState().selectIssue(null)
         }
       }
       reset()

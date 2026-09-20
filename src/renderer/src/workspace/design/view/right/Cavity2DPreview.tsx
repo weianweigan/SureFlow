@@ -364,13 +364,35 @@ export const Cavity2DPreview: React.FC<Cavity2DPreviewProps> = ({
 
           {/* 5. 侧油口流道（Ports） */}
           {(section.ports ?? []).map((port, pIdx) => {
-            const pDia = port.diameter || 6
-            const pR = pDia / 2
             const isBottom = Boolean(port.isBottomPort)
-            const yCenter = port.depth
-            const yTop = yCenter - pR
+            const pDia = port.diameter && port.diameter > 0 ? port.diameter : 6
+            const pR = pDia / 2
+
+            let yTop: number
+            let yCenter: number
+            let portHeight: number
+            let portLabel: string
+
+            const portName = port.name?.trim() || `P${pIdx + 1}`
+
+            if (isBottom) {
+              yTop = port.depth ?? 0
+              const yBottom = Math.max(totalD, yTop >= totalD ? yTop + 8 : totalD)
+              portHeight = Math.max(1, yBottom - yTop)
+              yCenter = (yTop + yBottom) / 2
+              portLabel = `${portName} ${_t('通底')}`
+            } else {
+              yCenter = port.depth ?? 0
+              yTop = yCenter - pR
+              portHeight = pDia
+              portLabel = `${portName} Ø${pDia}`
+            }
+
             const xOut = maxR * 1.4 + (compact ? 3 : 10)
             const isPortSelected = activePortIndex === pIdx
+            const rectX = isBottom ? -maxR * 0.8 : 0
+            const rectWidth = Math.max(0, isBottom ? maxR * 0.8 + xOut : xOut)
+            const finalHeight = Math.max(0, portHeight)
 
             return (
               <g
@@ -380,10 +402,10 @@ export const Cavity2DPreview: React.FC<Cavity2DPreviewProps> = ({
               >
                 {/* 流道水力天蓝填充 */}
                 <rect
-                  x={isBottom ? -maxR * 0.8 : 0}
+                  x={rectX}
                   y={yTop}
-                  width={isBottom ? maxR * 0.8 + xOut : xOut}
-                  height={pDia}
+                  width={rectWidth}
+                  height={finalHeight}
                   fill={isPortSelected ? "rgb(14 165 233 / 0.45)" : "rgb(14 165 233 / 0.2)"}
                   stroke={isPortSelected ? "#0369a1" : "#0284c7"}
                   strokeWidth={isPortSelected ? "2" : "1"}
@@ -412,7 +434,7 @@ export const Cavity2DPreview: React.FC<Cavity2DPreviewProps> = ({
                     fontWeight="bold"
                     className="font-mono select-none"
                   >
-                    P{pIdx + 1} Ø{pDia}
+                    {portLabel}
                   </text>
                 )}
               </g>

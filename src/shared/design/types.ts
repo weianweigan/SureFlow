@@ -297,6 +297,10 @@ export interface SchemeDefinition {
   groups?: CavityGroup[]
   /** 用户对通道个性化配置的持久化映射 (key 为 bindingKey) */
   channelConfigs?: Record<string, ChannelUserConfig>
+  /** 设计检查配置 (PRD-FR-04-15) */
+  checkConfig?: import('./analysis/contracts').CheckConfig
+  /** 外部元件模型实例绑定 (PRD-FR-04-15) */
+  componentModels?: import('./analysis/contracts').ComponentModelBinding[]
 }
 
 

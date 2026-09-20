@@ -244,10 +244,10 @@ function FlangeCadPreview({ params }: { params: SaeFlangeParams }) {
 
         {/* 螺栓孔距点划矩形框 */}
         <rect
-          x={-dx}
-          y={-dy}
-          width={dx * 2}
-          height={dy * 2}
+          x={-Math.abs(dx)}
+          y={-Math.abs(dy)}
+          width={Math.max(0, Math.abs(dx) * 2)}
+          height={Math.max(0, Math.abs(dy) * 2)}
           fill="none"
           className="stroke-muted-foreground/40"
           strokeWidth="0.35"

@@ -6,7 +6,6 @@ out
 .vite
 
 # 导出文件
-*.step
 *.glb
 *.step.cache
 

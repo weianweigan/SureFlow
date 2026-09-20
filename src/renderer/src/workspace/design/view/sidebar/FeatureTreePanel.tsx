@@ -15,6 +15,7 @@ import {
   getSelectedFeatures,
   type FeatureSelectionItem
 } from '../../model/designStore'
+import { useAnalysisStore } from '../../model/analysisStore'
 import { useLibraryStore } from '../../../library/viewmodel/libraryStore'
 import { getBaseBodyIcon, type BaseFaceDefinition, type CavityInstance, type CavityGroup } from '@shared/design/types'
 import { TYPE_ICONS, assetUrl } from '../../../library/view/typeIcons'
@@ -142,6 +143,13 @@ export const FeatureTreePanel: FC<FeatureTreePanelProps> = ({ projectId }) => {
 
   // 处理特征点击（支持 Shift/Ctrl 多选特征）
   const handleFeatureClick = (feat: { type: 'cavity' | 'group'; id: string }, isMulti: boolean) => {
+    if (useAnalysisStore.getState().isActiveClearanceOpen) {
+      if (feat.type === 'cavity') {
+        useAnalysisStore.getState().pickClearanceObject({ kind: 'cavity', instanceId: feat.id })
+        return
+      }
+    }
+
     if (isMulti) {
       const current = getSelectedFeatures(session?.selected)
       const exists = current.some((f) => f.type === feat.type && f.id === feat.id)

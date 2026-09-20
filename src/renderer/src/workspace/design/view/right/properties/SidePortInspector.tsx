@@ -35,10 +35,10 @@ export const SidePortInspector: React.FC<SidePortInspectorProps> = ({
     return topology.channels.find((ch) => ch.cavityIds.includes(cavityId)) || null
   }, [topology, cavityId])
 
-  const portDia = port?.diameter || 6
-  const portDepth = port?.depth || 0
   const isBottom = Boolean(port?.isBottomPort)
-  const portAreaMm2 = Math.round((Math.PI * Math.pow(portDia / 2, 2)) * 10) / 10
+  const portDia = port?.diameter && port.diameter > 0 ? port.diameter : 6
+  const portDepth = port?.depth || 0
+  const portAreaMm2 = isBottom ? 0 : Math.round((Math.PI * Math.pow(portDia / 2, 2)) * 10) / 10
 
   return (
     <div className="flex h-full flex-col select-none overflow-y-auto">
@@ -68,9 +68,9 @@ export const SidePortInspector: React.FC<SidePortInspectorProps> = ({
           </span>
         }
       >
-        <PropertyRow label={_t('通径规格')} unit="mm">
+        <PropertyRow label={_t('通径规格')} unit={isBottom ? undefined : "mm"}>
           <span className="font-mono text-xs text-foreground font-bold">
-            Ø {portDia} mm
+            {isBottom ? _t('— (通底)') : `Ø ${portDia}`}
           </span>
         </PropertyRow>
         <PropertyRow label={_t('轴向深度 Z')} unit="mm">

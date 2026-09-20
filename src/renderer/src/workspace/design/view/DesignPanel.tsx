@@ -20,7 +20,10 @@ import { DesignLeftSidebar } from './sidebar/DesignLeftSidebar'
 import { DesignViewport } from './viewport/DesignViewport'
 import { DesignRightPanel } from './right/DesignRightPanel'
 import type { SfbProject } from '@shared/design/types'
-import { VerticalResizer } from './common/Resizer'
+import { VerticalResizer, HorizontalResizer } from './common/Resizer'
+import { DesignChecksPanel } from './checks/DesignChecksPanel'
+import { useAnalysisStore } from '../model/analysisStore'
+import { useAnalysisAutoTrigger } from '../model/useAnalysisAutoTrigger'
 
 const LEFT_MIN = 200
 const LEFT_MAX = 520
@@ -51,6 +54,7 @@ export const DesignPanel: FC<DesignPanelProps> = ({
   initialGlbBuffer
 }) => {
   _useLocale()
+  const { recheck } = useAnalysisAutoTrigger(projectId)
   const initProject = useDesignStore((s) => s.initProject)
   const session = useDesignStore((s) => s.projects[projectId])
   const saveProject = useDesignStore((s) => s.saveProject)
@@ -110,6 +114,13 @@ export const DesignPanel: FC<DesignPanelProps> = ({
     return () => window.removeEventListener('keydown', onKey)
   }, [projectId, saveProject, saveAsProject, undo, redo])
 
+  // 设计检查底栏状态 (PRD-FR-04-15 §4)
+  const isChecksOpen = useAnalysisStore((s) => s.isOpen)
+  const checksHeight = useAnalysisStore((s) => s.panelHeight)
+  const setChecksHeight = useAnalysisStore((s) => s.setPanelHeight)
+  const toggleChecksPanel = useAnalysisStore((s) => s.togglePanel)
+  const lastValidChecksHeight = useAnalysisStore((s) => s.lastValidHeight)
+
   if (!session) {
     return (
       <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
@@ -133,9 +144,31 @@ export const DesignPanel: FC<DesignPanelProps> = ({
         defaultValue={LEFT_DEFAULT}
       />
 
-      {/* 中栏：3D 视口与顶栏 */}
-      <main className="flex min-w-0 flex-1 flex-col">
-        <DesignViewport projectId={projectId} />
+      {/* 中栏：3D 视口与可伸缩检查底栏 (PRD-FR-04-15 §4) */}
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="flex-1 min-h-[240px] overflow-hidden">
+          <DesignViewport projectId={projectId} />
+        </div>
+        {isChecksOpen && (
+          <>
+            <HorizontalResizer
+              value={checksHeight}
+              onChange={setChecksHeight}
+              onRelease={(rawH) => {
+                if (rawH < 40) {
+                  toggleChecksPanel(false)
+                } else {
+                  setChecksHeight(rawH)
+                }
+              }}
+              min={160}
+              max={600}
+              reverse
+              defaultValue={lastValidChecksHeight}
+            />
+            <DesignChecksPanel projectId={projectId} onRecheck={recheck} />
+          </>
+        )}
       </main>
 
       <VerticalResizer

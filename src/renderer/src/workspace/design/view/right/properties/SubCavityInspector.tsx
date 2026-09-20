@@ -321,7 +321,7 @@ export const SubCavityInspector: React.FC<SubCavityInspectorProps> = ({
                     <span className="size-2 rounded-full bg-sky-500 shrink-0" />
                     <span className="font-medium">P{pIdx + 1}</span>
                     <span className="font-mono text-[11px] text-muted-foreground">
-                      Ø{port.diameter || 6} mm
+                      {port.isBottomPort ? _t('通底') : `Ø${port.diameter && port.diameter > 0 ? port.diameter : 6} mm`}
                     </span>
                   </div>
                   <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
