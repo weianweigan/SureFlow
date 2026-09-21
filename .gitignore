@@ -23,6 +23,7 @@ libraries/
 #docs
 docs/
 prd/
+connectors/
 
 # env
 .env

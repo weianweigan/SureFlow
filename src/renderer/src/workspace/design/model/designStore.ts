@@ -204,6 +204,8 @@ export interface DesignState {
       previewImageBase64?: string | null
     }
   ) => Promise<boolean>
+  /** 设置并记录上一次导出 STEP 实体模型的路径（可传相对路径） */
+  setLastExportPath: (projectId: string, exportPath: string) => void
 
   /** 选中特征（基体、面、孔腔、分组） */
   selectFeature: (projectId: string, selection: FeatureSelection) => void
@@ -531,6 +533,17 @@ export const useDesignStore = create<DesignState>((set, get) => ({
       window.alert(`另存为失败: ${String(err)}`)
       return false
     }
+  },
+
+  setLastExportPath: (projectId, exportPath) => {
+    set(
+      produce((state: DesignState) => {
+        const p = state.projects[projectId]
+        if (p) {
+          p.doc.meta.lastExportPath = exportPath
+        }
+      })
+    )
   },
 
   selectFeature: (projectId, selection) => {

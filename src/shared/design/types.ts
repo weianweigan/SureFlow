@@ -311,6 +311,8 @@ export interface SfbProjectMeta {
   modifiedAt: string
   author?: string
   previewImage?: string
+  /** 上一次导出 STEP 实体模型的路径（若与 .sfb 同级目录则保存相对路径如 ./block.step） */
+  lastExportPath?: string
 }
 
 export interface SfbProject {

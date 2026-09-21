@@ -8,7 +8,7 @@
  * 4. 序列化生成 AP214 / AP203 / AP242 标准 STEP 文本。
  */
 
-import type { Step } from '@shared/cavity/types'
+import type { Step, Port } from '@shared/cavity/types'
 import { getOccInstance } from './occtLoader'
 import { generateStepContent, parseBands, type CavityBand } from './cadExportService'
 
@@ -27,17 +27,46 @@ export interface CadStepExportTask {
     protocol: 'AP214' | 'AP203' | 'AP242'
     tolerance: number
     colorPorts: boolean
+    transparentBaseBody?: boolean
+    mountingFacesTransparent?: boolean
+    transparency?: number
+    stableTopology?: boolean
   }
   baseBody: {
+    type?: 'template' | 'step'
+    template?: 'box' | 'l-shape' | 't-shape'
     dimensions: [number, number, number]
+    extraParams?: Record<string, number>
+    stepContent?: Uint8Array | string
+    color?: string
   }
   cavities: Array<{
     instanceId: string
     numericId: number
     worldMatrix: number[]
     steps: Step[]
+    ports?: Port[]
     name?: string
     color?: string
+    channelId?: string
+    channelColor?: string
+    channelName?: string
+    templateId?: string
+    templateName?: string
+    libraryId?: string
+    cavityType?: string
+    faceId?: string
+    u?: number
+    v?: number
+    threadSpec?: string
+    portSemantic?: string
+  }>
+  channels?: Array<{
+    id: string
+    name: string
+    color: string
+    cavityIds: string[]
+    regions?: Array<{ cavityId: string; portIndex?: number; minDepth: number; maxDepth: number }>
   }>
 }
 
@@ -75,7 +104,7 @@ self.onmessage = async (e: MessageEvent<CadWorkerTask>) => {
   }
 
   if (data.type === 'CAD_STEP_EXPORT') {
-    const { taskId, exportConfig, baseBody, cavities } = data
+    const { taskId, exportConfig, baseBody, cavities, channels } = data
 
     try {
       // 1. 初始化 OCCT
@@ -94,7 +123,8 @@ self.onmessage = async (e: MessageEvent<CadWorkerTask>) => {
           taskId,
           exportConfig,
           baseBody,
-          cavities
+          cavities,
+          channels
         },
         occ,
         (progress, stage) => {

@@ -120,7 +120,7 @@ export const TabContextMenu: FC<TabContextMenuProps> = ({
 
   return (
     <ContextMenu
-      onOpenChange={(open) => {
+      onOpenChange={(open: boolean) => {
         onOpenChange?.(open)
       }}
     >

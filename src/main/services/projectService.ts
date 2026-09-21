@@ -3,7 +3,7 @@ import { t as _t, msg as _msg } from '../../shared/i18n'
  * 设计工程文件管理服务（.sfb 读写与系统文件对话框）
  */
 
-import { dialog } from 'electron'
+import { dialog, BrowserWindow } from 'electron'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { SfbProject } from '../../shared/design/types'
@@ -149,26 +149,78 @@ export async function saveProjectDialog(defaultName: string = _t("未命名工�
   return result.filePath
 }
 
-/** 弹出系统「导出 STEP」保存对话框并直接保存 .step 文件 (PRD-FR-04-07 §3) */
-export async function saveStepDialog(
-  defaultName: string = _t("未命名阀块"),
-  stepContent: string
-): Promise<string | null> {
-  const cleanName = defaultName.replace(/[\\/:*?"<>|]/g, '_')
-  const result = await dialog.showSaveDialog({
-    title: _t("导出 STEP 实体模型"),
-    defaultPath: cleanName.endsWith('.step') || cleanName.endsWith('.stp') ? cleanName : `${cleanName}.step`,
+/** 弹出系统「选择 STEP 导出文件路径」对话框（不写文件，仅返回选中的绝对路径） */
+export async function selectStepPathDialog(defaultPath?: string): Promise<string | null> {
+  const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]
+  let cleanDefault = (defaultPath || 'manifold.step').trim().replace(/^\.[\\/]/, '')
+  if (!cleanDefault) cleanDefault = 'manifold.step'
+
+  const options = {
+    title: _t("选择 STEP 导出文件路径"),
+    defaultPath: cleanDefault,
     filters: [
       { name: _t("STEP 实体文件 (*.step, *.stp)"), extensions: ['step', 'stp'] },
       { name: _t("所有文件 (*.*)"), extensions: ['*'] }
     ]
-  })
+  }
+
+  const result = win
+    ? await dialog.showSaveDialog(win, options)
+    : await dialog.showSaveDialog(options)
 
   if (result.canceled || !result.filePath) {
     return null
   }
 
-  await fs.writeFile(result.filePath, stepContent, 'utf-8')
+  return result.filePath
+}
+
+/** 直接向指定绝对路径写入 STEP 实体文本文件 */
+export async function saveStepFile(filePath: string, stepContent: string): Promise<string> {
+  await fs.writeFile(filePath, stepContent, 'utf-8')
+  return filePath
+}
+
+/** 弹出系统「导出 STEP」保存对话框并直接保存 .step 文件 (PRD-FR-04-07 §3) */
+export async function saveStepDialog(
+  defaultName: string = _t("未命名阀块"),
+  stepContent?: string,
+  targetPath?: string
+): Promise<string | null> {
+  if (targetPath) {
+    await fs.writeFile(targetPath, stepContent || '', 'utf-8')
+    return targetPath
+  }
+
+  let defaultPath: string
+  if (defaultName.includes('/') || defaultName.includes('\\')) {
+    defaultPath = defaultName
+  } else {
+    const cleanName = defaultName.replace(/[\\/:*?"<>|]/g, '_')
+    defaultPath = cleanName.endsWith('.step') || cleanName.endsWith('.stp') ? cleanName : `${cleanName}.step`
+  }
+
+  const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]
+  const options: Electron.SaveDialogOptions = {
+    title: _t("导出 STEP 实体模型"),
+    defaultPath,
+    filters: [
+      { name: _t("STEP 实体文件 (*.step, *.stp)"), extensions: ['step', 'stp'] },
+      { name: _t("所有文件 (*.*)"), extensions: ['*'] }
+    ]
+  }
+
+  const result = win
+    ? await dialog.showSaveDialog(win, options)
+    : await dialog.showSaveDialog(options)
+
+  if (result.canceled || !result.filePath) {
+    return null
+  }
+
+  if (stepContent !== null && stepContent !== undefined && stepContent !== '') {
+    await fs.writeFile(result.filePath, stepContent, 'utf-8')
+  }
   return result.filePath
 }
 

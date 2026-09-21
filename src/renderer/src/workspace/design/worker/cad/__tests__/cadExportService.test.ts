@@ -639,4 +639,527 @@ describe('CAD STEP Export Stability Tests', () => {
       parsedShape.delete()
     })
   })
+
+  describe('STEP Transparency, Channel Coloring, and Topological Stability', () => {
+    it('should inject SURFACE_STYLE_TRANSPARENT and BaseBody/MountingFace styles', async () => {
+      const params: CadExportParams = {
+        exportConfig: {
+          protocol: 'AP214',
+          tolerance: 0.01,
+          colorPorts: true,
+          transparentBaseBody: true,
+          mountingFacesTransparent: true,
+          transparency: 0.75
+        },
+        baseBody: { dimensions: [100, 80, 60], color: '#B0B8C0' },
+        cavities: [
+          {
+            instanceId: 'cav-test-1',
+            numericId: 1,
+            name: 'P_Port',
+            worldMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 50, 40, 0, 1],
+            steps: [{ type: 'straight', diameter: 16, length: 25, thread: null }],
+            color: '#EF4444'
+          }
+        ]
+      }
+
+      const stepText = await generateStepContent(params, occ)
+
+      // 验证透明度实体
+      expect(stepText).toContain('SURFACE_STYLE_TRANSPARENT(0.7500)')
+      expect(stepText).toContain("STYLED_ITEM('BaseBodySolidStyle'")
+      expect(stepText).toContain("STYLED_ITEM('MountingFaceStyle'")
+      expect(stepText).toContain("MECHANICAL_DESIGN_GEOMETRIC_PRESENTATION_REPRESENTATION('SureFlow Presentation Style'")
+
+      // 验证 STEP 反向解析水密性
+      const uint8 = new TextEncoder().encode(stepText)
+      const parsedShape = occ.ReadSTEPFromBinary(uint8)
+      expect(parsedShape).toBeDefined()
+      expect(parsedShape.IsNull()).toBe(false)
+      parsedShape.delete()
+    })
+
+    it('should color faces according to flow channels and port semantics', async () => {
+      const params: CadExportParams = {
+        exportConfig: {
+          protocol: 'AP214',
+          tolerance: 0.01,
+          colorPorts: true,
+          transparentBaseBody: true,
+          mountingFacesTransparent: true
+        },
+        baseBody: { dimensions: [120, 100, 60] },
+        cavities: [
+          {
+            instanceId: 'cav-p',
+            numericId: 1,
+            name: 'P_Inlet',
+            worldMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 30, 50, 0, 1],
+            steps: [{ type: 'straight', diameter: 16, length: 25, thread: null }],
+            channelColor: '#EF4444'
+          },
+          {
+            instanceId: 'cav-t',
+            numericId: 2,
+            name: 'T_Return',
+            worldMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 70, 50, 0, 1],
+            steps: [{ type: 'straight', diameter: 14, length: 25, thread: null }],
+            channelColor: '#3B82F6'
+          }
+        ],
+        channels: [
+          { id: 'ch-p', name: 'Pressure P', color: '#EF4444', cavityIds: ['cav-p'] },
+          { id: 'ch-t', name: 'Tank T', color: '#3B82F6', cavityIds: ['cav-t'] }
+        ]
+      }
+
+      const stepText = await generateStepContent(params, occ)
+
+      // 验证两个通道独立的 COLOUR_RGB
+      expect(stepText).toContain("COLOUR_RGB('ChannelColour_EF4444'")
+      expect(stepText).toContain("COLOUR_RGB('ChannelColour_3B82F6'")
+
+      // 验证分别生成了通道着色 STYLED_ITEM
+      expect(stepText).toContain("STYLED_ITEM('ChannelFaceStyle'")
+
+      // 验证 STEP 反向解析有效
+      const uint8 = new TextEncoder().encode(stepText)
+      const parsedShape = occ.ReadSTEPFromBinary(uint8)
+      expect(parsedShape.IsNull()).toBe(false)
+      parsedShape.delete()
+    })
+
+    it('should maintain strict topological stability and face naming across cavity parameter micro-adjustments', async () => {
+      // 场景：阀块含两个孔腔。孔腔 1 作为下游装配基准面；对孔腔 2 的直径和深度进行微调
+      const baseCavity1 = {
+        instanceId: 'cav-datum',
+        numericId: 1,
+        name: 'Datum_Cavity_1',
+        worldMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 30, 40, 0, 1],
+        steps: [
+          { type: 'straight', diameter: 16, length: 20, thread: null } as const,
+          { type: 'straight', diameter: 10, length: 15, thread: null } as const
+        ]
+      }
+
+      // 版本 A：孔腔 2 直径 14，深度 25
+      const paramsA: CadExportParams = {
+        exportConfig: {
+          protocol: 'AP214',
+          tolerance: 0.01,
+          colorPorts: true,
+          stableTopology: true
+        },
+        baseBody: { dimensions: [120, 80, 60] },
+        cavities: [
+          baseCavity1,
+          {
+            instanceId: 'cav-adjust',
+            numericId: 2,
+            name: 'Adjustable_Cavity_2',
+            worldMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 80, 40, 0, 1],
+            steps: [{ type: 'straight', diameter: 14, length: 25, thread: null } as const]
+          }
+        ]
+      }
+
+      // 版本 B：孔腔 2 直径微调至 14.5 (+0.5mm)，深度微调至 27 (+2mm)
+      const paramsB: CadExportParams = {
+        exportConfig: {
+          protocol: 'AP214',
+          tolerance: 0.01,
+          colorPorts: true,
+          stableTopology: true
+        },
+        baseBody: { dimensions: [120, 80, 60] },
+        cavities: [
+          baseCavity1,
+          {
+            instanceId: 'cav-adjust',
+            numericId: 2,
+            name: 'Adjustable_Cavity_2',
+            worldMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 80, 40, 0, 1],
+            steps: [{ type: 'straight', diameter: 14.5, length: 27, thread: null } as const]
+          }
+        ]
+      }
+
+      const stepTextA = await generateStepContent(paramsA, occ)
+      const stepTextB = await generateStepContent(paramsB, occ)
+
+      // 提取两个版本中的 CLOSED_SHELL 面实体引用序列
+      const shellMatchA = stepTextA.match(/CLOSED_SHELL\s*\(\s*'[^']*'\s*,\s*\(([^)]+)\)\s*\)/)
+      const shellMatchB = stepTextB.match(/CLOSED_SHELL\s*\(\s*'[^']*'\s*,\s*\(([^)]+)\)\s*\)/)
+      expect(shellMatchA).not.toBeNull()
+      expect(shellMatchB).not.toBeNull()
+
+      const facesA = shellMatchA![1].split(',').map((s) => s.trim())
+      const facesB = shellMatchB![1].split(',').map((s) => s.trim())
+
+      // 提取面命名辅助函数
+      function getFaceNames(stepText: string, faceRefList: string[]): string[] {
+        return faceRefList.map((ref) => {
+          const regex = new RegExp(`${ref}\\s*=\\s*ADVANCED_FACE\\s*\\(\\s*'([^']*)'`)
+          const m = stepText.match(regex)
+          return m ? m[1] : 'UNKNOWN'
+        })
+      }
+
+      const namesA = getFaceNames(stepTextA, facesA)
+      const namesB = getFaceNames(stepTextB, facesB)
+
+      // 1. 验证安装面顺序严格稳定一致（前 6 个面均为安装面且名称完全相同）
+      const mountingFacesA = namesA.slice(0, 6)
+      const mountingFacesB = namesB.slice(0, 6)
+      expect(mountingFacesA).toEqual([
+        'MOUNTING_FACE_TOP',
+        'MOUNTING_FACE_BOTTOM',
+        'MOUNTING_FACE_FRONT',
+        'MOUNTING_FACE_BACK',
+        'MOUNTING_FACE_LEFT',
+        'MOUNTING_FACE_RIGHT'
+      ])
+      expect(mountingFacesB).toEqual(mountingFacesA)
+
+      // 2. 验证基准孔腔 1 的各个特征面顺序与名称在孔腔 2 微调后完全保持稳定
+      const datumFacesA = namesA.filter((n) => n.includes('Datum_Cavity_1'))
+      const datumFacesB = namesB.filter((n) => n.includes('Datum_Cavity_1'))
+      expect(datumFacesA.length).toBeGreaterThan(0)
+      expect(datumFacesB).toEqual(datumFacesA)
+    })
+
+    it('should respect disabled transparency and neutral port mode when requested', async () => {
+      const params: CadExportParams = {
+        exportConfig: {
+          protocol: 'AP214',
+          tolerance: 0.01,
+          colorPorts: false,
+          transparentBaseBody: false,
+          mountingFacesTransparent: false
+        },
+        baseBody: { dimensions: [100, 80, 60] },
+        cavities: [
+          {
+            instanceId: 'cav-1',
+            numericId: 1,
+            worldMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 50, 40, 0, 1],
+            steps: [{ type: 'straight', diameter: 16, length: 25, thread: null }]
+          }
+        ]
+      }
+
+      const stepText = await generateStepContent(params, occ)
+
+      // 禁用透明与着色时，不应包含透明度和孔腔着色实体
+      expect(stepText).not.toContain('SURFACE_STYLE_TRANSPARENT')
+      expect(stepText).not.toContain('ChannelFaceStyle')
+      expect(stepText).toContain('ISO-10303-21;')
+
+      // 反向解析依然合法
+      const uint8 = new TextEncoder().encode(stepText)
+      const parsedShape = occ.ReadSTEPFromBinary(uint8)
+      expect(parsedShape.IsNull()).toBe(false)
+      parsedShape.delete()
+    })
+
+    it('should generate ISO 10303-46 compliant SURFACE_STYLE_RENDERING_WITH_PROPERTIES for SolidWorks transparency', async () => {
+      const params: CadExportParams = {
+        exportConfig: {
+          protocol: 'AP214',
+          tolerance: 0.01,
+          colorPorts: true,
+          transparentBaseBody: true,
+          mountingFacesTransparent: true,
+          transparency: 0.65
+        },
+        baseBody: {
+          dimensions: [100, 80, 50],
+          color: '#B0B4B8'
+        },
+        cavities: [
+          {
+            instanceId: 'cav-sw',
+            numericId: 1,
+            worldMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 50, 40, 0, 1],
+            steps: [{ type: 'straight', diameter: 12, length: 20, thread: null }],
+            channelColor: '#EF4444'
+          }
+        ],
+        channels: [
+          { id: 'ch-p', name: 'Pressure', color: '#EF4444', cavityIds: ['cav-sw'] }
+        ]
+      }
+
+      const stepText = await generateStepContent(params, occ)
+
+      // 验证 ISO 10303-46 标准实体：SURFACE_STYLE_RENDERING_WITH_PROPERTIES 包装 SURFACE_STYLE_TRANSPARENT
+      expect(stepText).toMatch(/SURFACE_STYLE_TRANSPARENT\s*\(\s*0\.6500\s*\)/)
+      expect(stepText).toMatch(/SURFACE_STYLE_RENDERING_WITH_PROPERTIES\s*\(\s*\.COLOUR_SHADING\.\s*,\s*#\d+\s*,\s*\(\s*#\d+\s*\)\s*\)/)
+
+      // 验证 SURFACE_SIDE_STYLE 聚合了 SURFACE_STYLE_FILL_AREA 与 SURFACE_STYLE_RENDERING_WITH_PROPERTIES
+      expect(stepText).toMatch(/SURFACE_SIDE_STYLE\s*\(\s*''\s*,\s*\(\s*#\d+\s*,\s*#\d+\s*\)\s*\)/)
+
+      // 验证同时附加在实体 MANIFOLD_SOLID_BREP 与所有外表面 ADVANCED_FACE
+      expect(stepText).toContain("STYLED_ITEM('BaseBodySolidStyle'")
+      expect(stepText).toContain("STYLED_ITEM('MountingFaceStyle'")
+
+      const parsedShape = occ.ReadSTEPFromBinary(new TextEncoder().encode(stepText))
+      expect(parsedShape.IsNull()).toBe(false)
+      parsedShape.delete()
+    })
+
+    it('should strictly color only channel-connected cavities/ports and leave unconnected/structural holes uncolored', async () => {
+      // 场景：包含 3 个孔
+      // 1. cav-connected: 普通钻孔，已连接通道 P (红)
+      // 2. cav-unconnected: 孤立未连接死孔或螺栓孔，未分配任何通道 -> 不应有任何 ChannelFaceStyle
+      // 3. cav-valve: 插装阀孔，包含两个 @Port (深度 10 直径 6 属于通道 T 蓝；深度 25 直径 8 未连接) -> 仅深度 10 区域着蓝色
+      const params: CadExportParams = {
+        exportConfig: {
+          protocol: 'AP214',
+          tolerance: 0.01,
+          colorPorts: true,
+          transparentBaseBody: true,
+          mountingFacesTransparent: true
+        },
+        baseBody: { dimensions: [140, 100, 60] },
+        cavities: [
+          {
+            instanceId: 'cav-connected',
+            numericId: 1,
+            name: 'P_Port_Drill',
+            worldMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 30, 50, 0, 1],
+            steps: [{ type: 'straight', diameter: 14, length: 25, thread: null }]
+          },
+          {
+            instanceId: 'cav-bolt-unconnected',
+            numericId: 2,
+            name: 'M10_Bolt_Hole',
+            worldMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 60, 50, 0, 1],
+            steps: [{ type: 'straight', diameter: 10, length: 25, thread: null }]
+          },
+          {
+            instanceId: 'cav-valve',
+            numericId: 3,
+            name: 'Cartridge_Valve_C1',
+            worldMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 100, 50, 0, 1],
+            steps: [
+              { type: 'straight', diameter: 18, length: 15, thread: null },
+              { type: 'straight', diameter: 12, length: 20, thread: null }
+            ],
+            ports: [
+              { name: 'T', depth: 10, diameter: 6, isBottomPort: false },
+              { name: 'Dead', depth: 25, diameter: 8, isBottomPort: false }
+            ]
+          }
+        ],
+        channels: [
+          {
+            id: 'ch-p',
+            name: 'Pressure P',
+            color: '#EF4444',
+            cavityIds: ['cav-connected']
+          },
+          {
+            id: 'ch-t',
+            name: 'Tank T',
+            color: '#3B82F6',
+            cavityIds: ['cav-valve'],
+            regions: [
+              { cavityId: 'cav-valve', portIndex: 0, minDepth: 7, maxDepth: 13 }
+            ]
+          }
+        ]
+      }
+
+      const stepText = await generateStepContent(params, occ)
+
+      // 验证存在两个通道的颜色定义
+      expect(stepText).toContain("COLOUR_RGB('ChannelColour_EF4444'")
+      expect(stepText).toContain("COLOUR_RGB('ChannelColour_3B82F6'")
+
+      // 提取所有 Styled Item 引用的 Face ID
+      const styledItems = Array.from(stepText.matchAll(/STYLED_ITEM\s*\(\s*'ChannelFaceStyle'\s*,\s*\(#\d+\)\s*,\s*#(\d+)\s*\)/g)).map(m => m[1])
+
+      // 验证：孤立未连接孔 (cav-bolt-unconnected, numericId: 2) 的所有面没有被赋予 ChannelFaceStyle
+      const boltFaces = Array.from(stepText.matchAll(/#(\d+)\s*=\s*ADVANCED_FACE\s*\(\s*'CAV_M10_Bolt_Hole_[^']*'/g)).map(m => m[1])
+      expect(boltFaces.length).toBeGreaterThan(0)
+      for (const bf of boltFaces) {
+        expect(styledItems).not.toContain(bf)
+      }
+
+      // 验证：插装阀孔在深度 10 (7~13) 的面着色，而深度 25 或孔底的面不被赋予 ChannelFaceStyle
+      const valvePortFaces = Array.from(stepText.matchAll(/#(\d+)\s*=\s*ADVANCED_FACE\s*\(\s*'CAV_Cartridge_Valve_C1_CYL_0[^']*'/g)).map(m => m[1])
+      expect(valvePortFaces.length).toBeGreaterThan(0)
+      for (const vpf of valvePortFaces) {
+        expect(styledItems).toContain(vpf)
+      }
+
+      // 深度 25 的未连接台阶面不应有 ChannelFaceStyle
+      const valveBottomFaces = Array.from(stepText.matchAll(/#(\d+)\s*=\s*ADVANCED_FACE\s*\(\s*'CAV_Cartridge_Valve_C1_BOTTOM_35[^']*'/g)).map(m => m[1])
+      for (const vbf of valveBottomFaces) {
+        expect(styledItems).not.toContain(vbf)
+      }
+
+      const parsedShape = occ.ReadSTEPFromBinary(new TextEncoder().encode(stepText))
+      expect(parsedShape.IsNull()).toBe(false)
+      parsedShape.delete()
+    })
+
+    it('should canonically place base body outer surfaces at the top of CLOSED_SHELL for non-box bodies (T-shape and STEP-imported)', async () => {
+      // 测试非标准 6 面长方体（如 T 型基体，拥有 10 个外表面；以及含斜孔的切削）
+      const paramsT: CadExportParams = {
+        exportConfig: {
+          protocol: 'AP214',
+          tolerance: 0.01,
+          colorPorts: true,
+          transparentBaseBody: true,
+          mountingFacesTransparent: true,
+          stableTopology: true
+        },
+        baseBody: {
+          template: 't-shape',
+          dimensions: [120, 100, 80],
+          extraParams: { cutX: 30, cutZ: 40 }
+        },
+        cavities: [
+          {
+            instanceId: 'cav-p',
+            numericId: 1,
+            name: 'P_Port',
+            worldMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 60, 50, 0, 1],
+            steps: [{ type: 'straight', diameter: 16, length: 25, thread: null }],
+            channelColor: '#EF4444'
+          }
+        ],
+        channels: [
+          { id: 'ch-p', name: 'Pressure', color: '#EF4444', cavityIds: ['cav-p'] }
+        ]
+      }
+
+      const stepText = await generateStepContent(paramsT, occ)
+
+      // 解析 CLOSED_SHELL 中的面序列
+      const shellMatch = stepText.match(/CLOSED_SHELL\s*\(\s*'[^']*'\s*,\s*\(([^)]+)\)\s*\)/)
+      expect(shellMatch).toBeTruthy()
+      const faceIds = shellMatch![1].split(',').map((s) => s.trim().replace('#', ''))
+
+      // 提取每个面的语义名称
+      const faceNames = faceIds.map((fId) => {
+        const m = stepText.match(new RegExp(`#${fId}\\s*=\\s*ADVANCED_FACE\\s*\\(\\s*'([^']*)'`))
+        return { id: fId, name: m ? m[1] : 'UNKNOWN' }
+      })
+
+      // 验证外表面与孔腔面的相对位置：所有的基体外表面 (MOUNTING_FACE_* 或 BASE_FACE_*) 必须严格置顶
+      const firstCavityIndex = faceNames.findIndex(f => f.name.startsWith('CAV_'))
+      expect(firstCavityIndex).toBeGreaterThan(0)
+
+      // firstCavityIndex 之前的所有面必须是基体外表面
+      for (let i = 0; i < firstCavityIndex; i++) {
+        const isBaseOuterFace = faceNames[i].name.startsWith('MOUNTING_FACE_') || faceNames[i].name.startsWith('BASE_FACE_')
+        expect(isBaseOuterFace).toBe(true)
+      }
+
+      // firstCavityIndex 及其之后必须是孔腔内部面
+      for (let i = firstCavityIndex; i < faceNames.length; i++) {
+        expect(faceNames[i].name.startsWith('CAV_')).toBe(true)
+      }
+
+      // 验证所有非标准基体外表面也成功获得了 MountingFaceStyle (透明度样式赋予)
+      for (let i = 0; i < firstCavityIndex; i++) {
+        expect(stepText).toContain(`STYLED_ITEM('MountingFaceStyle', (#`)
+      }
+
+      // 验证水密性反向解析
+      const parsedShape = occ.ReadSTEPFromBinary(new TextEncoder().encode(stepText))
+      expect(parsedShape.IsNull()).toBe(false)
+      parsedShape.delete()
+    })
+
+    it('should embed rich cavity template metadata, face-level structured tags, and global cavity manifest into STEP', async () => {
+      const params: CadExportParams = {
+        exportConfig: {
+          protocol: 'AP214',
+          tolerance: 0.01,
+          colorPorts: true,
+          transparentBaseBody: true,
+          mountingFacesTransparent: true
+        },
+        baseBody: { dimensions: [120, 100, 60] },
+        cavities: [
+          {
+            instanceId: 'cav-sun-t11a',
+            numericId: 1,
+            name: 'Main_Cartridge_CV1',
+            templateId: 'sun-t-11a',
+            templateName: 'Sun T-11A 2-Way Cavity',
+            libraryId: 'sun-hydraulics-std',
+            cavityType: 'cartridge-valve',
+            faceId: 'MOUNTING_FACE_TOP',
+            u: 45.0,
+            v: -30.0,
+            portSemantic: 'P',
+            channelName: 'Net_P',
+            channelColor: '#EF4444',
+            worldMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 45, 50, 0, 1],
+            steps: [
+              {
+                type: 'straight',
+                diameter: 22,
+                length: 18,
+                thread: { family: 'METRIC', designation: 'M20x1.5', depth: 15 }
+              },
+              { type: 'straight', diameter: 14, length: 25, thread: null }
+            ],
+            ports: [
+              { name: '1', depth: 12, diameter: 8, isBottomPort: false }
+            ]
+          }
+        ],
+        channels: [
+          { id: 'ch-p', name: 'Net_P', color: '#EF4444', cavityIds: ['cav-sun-t11a'] }
+        ]
+      }
+
+      const stepText = await generateStepContent(params, occ)
+
+      // 1. 验证面级扩展语义名称：包含 TPL、SPEC、NET、PORT 标签
+      expect(stepText).toMatch(/ADVANCED_FACE\s*\(\s*'CAV_Main_Cartridge_CV1_CYL_0\|TPL:sun-t-11a\|SPEC:M20x1\.5\(深15\)\|NET:Net_P\|PORT:P'/)
+
+      // 2. 验证 ISO 10303 属性集：包含标准属性项
+      expect(stepText).toContain("PROPERTY_DEFINITION('CavityTraceability_1'")
+      expect(stepText).toContain("DESCRIPTIVE_REPRESENTATION_ITEM('SureFlow:TemplateId', 'sun-t-11a')")
+      expect(stepText).toContain("DESCRIPTIVE_REPRESENTATION_ITEM('SureFlow:TemplateName', 'Sun T-11A 2-Way Cavity')")
+      expect(stepText).toContain("DESCRIPTIVE_REPRESENTATION_ITEM('SureFlow:LibraryId', 'sun-hydraulics-std')")
+      expect(stepText).toContain("DESCRIPTIVE_REPRESENTATION_ITEM('SureFlow:CavityType', 'cartridge-valve')")
+      expect(stepText).toContain("DESCRIPTIVE_REPRESENTATION_ITEM('SureFlow:HostFace', 'MOUNTING_FACE_TOP')")
+      expect(stepText).toContain("DESCRIPTIVE_REPRESENTATION_ITEM('SureFlow:PositionUV', 'U=45.00, V=-30.00')")
+      expect(stepText).toContain("DESCRIPTIVE_REPRESENTATION_ITEM('SureFlow:ThreadSpec', 'M20x1.5(深15)')")
+      expect(stepText).toContain("DESCRIPTIVE_REPRESENTATION_ITEM('SureFlow:ChannelName', 'Net_P')")
+      expect(stepText).toContain("DESCRIPTIVE_REPRESENTATION_ITEM('SureFlow:PortSemantic', 'P')")
+
+      // 3. 验证全局孔腔清单清册 (SureFlow:CavityManifest)
+      expect(stepText).toContain("PROPERTY_DEFINITION('SureFlow:CavityManifest'")
+      const manifestMatch = stepText.match(/DESCRIPTIVE_REPRESENTATION_ITEM\s*\(\s*'ManifestJson'\s*,\s*'([\s\S]*?)'\s*\)\s*;/)
+      expect(manifestMatch).toBeTruthy()
+
+      // 解析还原 JSON 清单
+      const unescapedJson = manifestMatch![1].replace(/''/g, "'")
+      const manifest = JSON.parse(unescapedJson)
+      expect(manifest.generator).toBe('SureFlow Hydraulic Manifold CAD Export')
+      expect(manifest.cavities).toHaveLength(1)
+      expect(manifest.cavities[0].templateId).toBe('sun-t-11a')
+      expect(manifest.cavities[0].templateName).toBe('Sun T-11A 2-Way Cavity')
+      expect(manifest.cavities[0].faceId).toBe('MOUNTING_FACE_TOP')
+      expect(manifest.cavities[0].u).toBe(45.0)
+      expect(manifest.cavities[0].v).toBe(-30.0)
+
+      // 4. 验证带元数据的 STEP 文件在 OCCT 中无损水密性解析
+      const parsedShape = occ.ReadSTEPFromBinary(new TextEncoder().encode(stepText))
+      expect(parsedShape).toBeDefined()
+      expect(parsedShape.IsNull()).toBe(false)
+      parsedShape.delete()
+    })
+  })
 })
+

@@ -6,6 +6,8 @@ import { ipcMain } from 'electron'
 import {
   openProjectDialog,
   saveProjectDialog,
+  selectStepPathDialog,
+  saveStepFile,
   saveStepDialog,
   readProject,
   readProjectMeta,
@@ -24,8 +26,16 @@ export function registerProjectIpc(): void {
     return saveProjectDialog(defaultName)
   })
 
-  ipcMain.handle('project:save-step-dialog', (_e, payload: { defaultName?: string; stepContent: string }): Promise<string | null> => {
-    return saveStepDialog(payload.defaultName, payload.stepContent)
+  ipcMain.handle('project:select-step-path', (_e, defaultPath?: string): Promise<string | null> => {
+    return selectStepPathDialog(defaultPath)
+  })
+
+  ipcMain.handle('project:save-step-file', (_e, payload: { filePath: string; stepContent: string }): Promise<string> => {
+    return saveStepFile(payload.filePath, payload.stepContent)
+  })
+
+  ipcMain.handle('project:save-step-dialog', (_e, payload: { defaultName?: string; stepContent: string; targetPath?: string }): Promise<string | null> => {
+    return saveStepDialog(payload.defaultName, payload.stepContent, payload.targetPath)
   })
 
   ipcMain.handle('project:read', (_e, filePath: string): Promise<OpenProjectResult> => {

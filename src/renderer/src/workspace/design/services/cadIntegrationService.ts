@@ -18,6 +18,8 @@ import type {
 import { cadBridge } from '../worker/cad/cadWorkerBridge'
 import { getBoxFaceBasis, getCavityWorldMatrix } from '@shared/design/faceMath'
 import { getCavitySteps } from '../geometry/cavityProfileBuilder'
+import { extractCavityThreadSpec } from '../worker/cad/cadExportService'
+import { solveChannelTopology } from '@shared/design/topology/channelSolver'
 import { useLibraryStore } from '../../library/viewmodel/libraryStore'
 import { t } from '@shared/i18n'
 
@@ -133,7 +135,20 @@ export async function exportStepToCad(
       const cavities = activeScheme?.cavities.filter((c) => !c.suppressed) || []
       const libraryDoc = useLibraryStore.getState().doc
 
-      const cavitiesInput = cavities.map((cav, idx) => {
+      const cavitiesWithSteps = cavities.map((cav) => ({
+        ...cav,
+        steps: cav.steps && cav.steps.length > 0 ? cav.steps : getCavitySteps(cav, libraryDoc)
+      }))
+      const channelTopology = solveChannelTopology(cavitiesWithSteps, doc.baseBody.dimensions, activeScheme?.channelConfigs)
+      const channelList = channelTopology.channels.map((ch) => ({
+        id: ch.id,
+        name: ch.name,
+        color: ch.color,
+        cavityIds: ch.cavityIds,
+        regions: ch.regions
+      }))
+
+      const cavitiesInput = cavitiesWithSteps.map((cav, idx) => {
         const basis = getBoxFaceBasis(cav.faceId, doc.baseBody.dimensions, doc.baseBody)
         const worldMatrix = Array.from(
           getCavityWorldMatrix(
@@ -146,14 +161,29 @@ export async function exportStepToCad(
             cav.azimuth ?? cav.rotation ?? 0
           )
         )
-        const steps = cav.steps && cav.steps.length > 0 ? cav.steps : getCavitySteps(cav, libraryDoc)
+        const matchedCh = channelList.find((ch) => ch.cavityIds.includes(cav.instanceId))
+        const template = libraryDoc?.templates?.find((t) => t.id === cav.templateId)
+        const threadSpec = extractCavityThreadSpec(cav.steps)
         return {
           instanceId: cav.instanceId,
           numericId: idx + 1,
-          steps,
+          steps: cav.steps,
+          ports: cav.ports,
           worldMatrix,
           name: cav.subHoleName || cav.name,
-          color: cav.portSemantic?.color
+          color: cav.portSemantic?.color,
+          channelId: matchedCh?.id,
+          channelColor: matchedCh?.color,
+          channelName: matchedCh?.name,
+          templateId: cav.templateId,
+          templateName: template?.name || cav.name,
+          libraryId: cav.libraryId,
+          cavityType: cav.cavityType || template?.cavityType,
+          faceId: cav.faceId,
+          u: cav.u,
+          v: cav.v,
+          threadSpec,
+          portSemantic: cav.portSemantic?.label
         }
       })
 
@@ -161,12 +191,17 @@ export async function exportStepToCad(
         exportConfig: {
           protocol: 'AP214',
           tolerance: 0.01,
-          colorPorts: true
+          colorPorts: true,
+          transparentBaseBody: true,
+          mountingFacesTransparent: true,
+          transparency: 0.7,
+          stableTopology: true
         },
         baseBody: {
           dimensions: doc.baseBody.dimensions
         },
-        cavities: cavitiesInput
+        cavities: cavitiesInput,
+        channels: channelList
       })
     } else {
       // 仅导出基体
@@ -177,7 +212,11 @@ export async function exportStepToCad(
           exportConfig: {
             protocol: 'AP214',
             tolerance: 0.01,
-            colorPorts: false
+            colorPorts: false,
+            transparentBaseBody: true,
+            mountingFacesTransparent: true,
+            transparency: 0.7,
+            stableTopology: true
           },
           baseBody: {
             dimensions: doc.baseBody.dimensions

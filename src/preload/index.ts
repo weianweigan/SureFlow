@@ -83,7 +83,11 @@ const projectApi = {
     ipcRenderer.invoke('project:open-dialog'),
   saveDialog: (defaultName?: string): Promise<string | null> =>
     ipcRenderer.invoke('project:save-dialog', defaultName),
-  saveStepDialog: (payload: { defaultName?: string; stepContent: string }): Promise<string | null> =>
+  selectStepPath: (defaultPath?: string): Promise<string | null> =>
+    ipcRenderer.invoke('project:select-step-path', defaultPath),
+  saveStepFile: (payload: { filePath: string; stepContent: string }): Promise<string> =>
+    ipcRenderer.invoke('project:save-step-file', payload),
+  saveStepDialog: (payload: { defaultName?: string; stepContent: string; targetPath?: string }): Promise<string | null> =>
     ipcRenderer.invoke('project:save-step-dialog', payload),
   read: (filePath: string): Promise<{ filePath: string; doc: SfbProject; cacheBuffer?: ArrayBuffer | null; glbBuffer?: ArrayBuffer | null }> =>
     ipcRenderer.invoke('project:read', filePath),
