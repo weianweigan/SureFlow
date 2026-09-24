@@ -227,11 +227,13 @@
   background-color: var(--sf-surface-soft);
 }
 
-/* 交互元素排除拖拽（Tab 本体、+ 按钮、窗口控制按钮） */
+/* 交互元素排除拖拽（Tab 本体、+ 按钮、窗口控制按钮、连接器Tab、应用菜单） */
 .sf-window-bar .dv-tab,
 .sf-window-bar .dv-tab *,
 .sf-window-bar .dv-right-actions-container,
 .sf-window-controls__btn,
+.sf-window-controls button,
+.sf-window-controls button *,
 .sf-window-controls__preview-wrapper,
 .sf-window-controls__preview-wrapper * {
   -webkit-app-region: no-drag;

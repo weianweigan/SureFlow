@@ -12,7 +12,7 @@ import { queryFileAssociations, configureFileAssociation } from './services/file
 import type { AssociatedExtension } from '../shared/settings/fileAssociations'
 import { setLocale, t } from '../shared/i18n'
 import { resolveSfFilePath } from './services/safeFileProtocol'
-import { startCadSocketBridge, stopCadSocketBridge, getCadSocketBridgeStatus } from './services/cadSocketBridge'
+import { startCadSocketBridge, stopCadSocketBridge, getCadSocketBridgeStatus, registerCadSocketIpc } from './services/cadSocketBridge'
 
 const fileQueue = new FileOpenQueue()
 let mainWindow: BrowserWindow | null = null
@@ -268,10 +268,13 @@ app.whenReady().then(() => {
   registerLibraryIpc()
   registerProjectIpc()
 
-  // 外部 CAD (SolidWorks 等) Socket 桥接服务（待连接器 Connector 模块统一规划启动，暂不默认开启监听）
+  // 外部 CAD (SolidWorks 等) WebSocket 协同桥接服务
+  registerCadSocketIpc()
   ipcMain.handle('cad:get-status', () => getCadSocketBridgeStatus())
   ipcMain.handle('cad:start-server', (_e, port?: number) => startCadSocketBridge(port))
   ipcMain.handle('cad:stop-server', () => stopCadSocketBridge())
+  // 默认启动 CAD WebSocket 监听
+  startCadSocketBridge().catch((err) => console.warn('[CAD Bridge] 初始启动监听警告:', err))
 
   createWindow()
   initAutoUpdater()

@@ -162,9 +162,60 @@ const cadBridgeApi = {
     }
     ipcRenderer.on('cad:export-step-request', listener)
     return () => ipcRenderer.removeListener('cad:export-step-request', listener)
+  },
+  onNewProjectRequest: (callback: (params: import('../shared/cad/cadBridgeTypes').DocNewProjectParams) => Promise<import('../shared/cad/cadBridgeTypes').DocNewProjectResult>): (() => void) => {
+    const listener = async (_e: Electron.IpcRendererEvent, params: import('../shared/cad/cadBridgeTypes').DocNewProjectParams) => {
+      const res = await callback(params)
+      ipcRenderer.send(`cad:new-project-reply:${params.docGuid}`, res)
+    }
+    ipcRenderer.on('cad:new-project-request', listener)
+    return () => ipcRenderer.removeListener('cad:new-project-request', listener)
+  },
+  onOpenProjectRequest: (callback: (params: import('../shared/cad/cadBridgeTypes').DocOpenProjectParams) => Promise<import('../shared/cad/cadBridgeTypes').DocOpenProjectResult>): (() => void) => {
+    const listener = async (_e: Electron.IpcRendererEvent, params: import('../shared/cad/cadBridgeTypes').DocOpenProjectParams) => {
+      const res = await callback(params)
+      ipcRenderer.send(`cad:open-project-reply:${params.docGuid}`, res)
+    }
+    ipcRenderer.on('cad:open-project-request', listener)
+    return () => ipcRenderer.removeListener('cad:open-project-request', listener)
+  },
+  onActivateProjectRequest: (callback: (params: import('../shared/cad/cadBridgeTypes').DocActivateProjectParams) => Promise<import('../shared/cad/cadBridgeTypes').DocActivateProjectResult>): (() => void) => {
+    const listener = async (_e: Electron.IpcRendererEvent, params: import('../shared/cad/cadBridgeTypes').DocActivateProjectParams) => {
+      const res = await callback(params)
+      ipcRenderer.send(`cad:activate-project-reply:${params.docGuid}`, res)
+    }
+    ipcRenderer.on('cad:activate-project-request', listener)
+    return () => ipcRenderer.removeListener('cad:activate-project-request', listener)
+  },
+  onCadDisconnected: (callback: (event: import('../shared/cad/cadBridgeTypes').CadDisconnectedEvent) => void): (() => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, event: import('../shared/cad/cadBridgeTypes').CadDisconnectedEvent) => callback(event)
+    ipcRenderer.on('cad:client-disconnected', listener)
+    return () => ipcRenderer.removeListener('cad:client-disconnected', listener)
+  },
+  pushSaveToCad: (docGuid: string, params: import('../shared/cad/cadBridgeTypes').DocSaveProjectParams): Promise<import('../shared/cad/cadBridgeTypes').DocSaveProjectResult> =>
+    ipcRenderer.invoke('cad:push-save-to-cad', { docGuid, params }),
+  syncCameraToCad: (docGuid: string | undefined, params: import('../shared/cad/cadBridgeTypes').SyncCameraViewParams): Promise<import('../shared/cad/cadBridgeTypes').SyncCameraViewResult> =>
+    ipcRenderer.invoke('cad:push-sync-camera-to-cad', { docGuid, params }),
+  onSyncCameraFromCad: (callback: (params: import('../shared/cad/cadBridgeTypes').SyncCameraViewParams) => void): (() => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, params: import('../shared/cad/cadBridgeTypes').SyncCameraViewParams) => callback(params)
+    ipcRenderer.on('cad:sync-camera-from-cad', listener)
+    return () => ipcRenderer.removeListener('cad:sync-camera-from-cad', listener)
+  },
+  onStatusChanged: (callback: (status: import('../shared/cad/cadBridgeTypes').CadBridgeStatus) => void): (() => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, status: import('../shared/cad/cadBridgeTypes').CadBridgeStatus) => callback(status)
+    ipcRenderer.on('cad:status-changed', listener)
+    return () => ipcRenderer.removeListener('cad:status-changed', listener)
   }
 }
 contextBridge.exposeInMainWorld('cadBridgeApi', cadBridgeApi)
+
+const connectorApi = {
+  installMsi: (msiPath: string): Promise<{ success: boolean; message?: string }> =>
+    ipcRenderer.invoke('connector:install-msi', msiPath),
+  detectCad: (): Promise<import('../shared/cad/cadBridgeTypes').CadDetectionResponse> =>
+    ipcRenderer.invoke('connector:get-cad-detection')
+}
+contextBridge.exposeInMainWorld('connectorApi', connectorApi)
 
 export type Api = typeof api
 export type WindowControls = typeof windowControls
@@ -172,6 +223,7 @@ export type LibraryApi = typeof libraryApi
 export type ProjectApi = typeof projectApi
 export type FileApi = typeof fileApi
 export type CadBridgeApi = typeof cadBridgeApi
+export type ConnectorApi = typeof connectorApi
 
 
 const updaterApi = {

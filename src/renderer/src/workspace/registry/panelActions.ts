@@ -12,8 +12,8 @@ import { useDesignStore } from '@renderer/workspace/design/model/designStore'
 import type { SfbProject } from '@shared/design/types'
 import posthog from '@renderer/lib/posthog'
 
-/** 打开单开常驻面板（home / library）；不存在则创建并追加到顶层 group */
-export function openPanelByType(type: 'home' | 'library' | 'settings'): void {
+/** 打开单开常驻面板（home / library / settings / connectors）；不存在则创建并追加到顶层 group */
+export function openPanelByType(type: 'home' | 'library' | 'settings' | 'connectors'): void {
   const api = useWorkspaceStore.getState().api
   if (!api) return
 
@@ -238,8 +238,12 @@ export async function requestClosePanel(panelId: string): Promise<boolean> {
     const projectId = panelId.replace(/^design:/, '')
     const session = useDesignStore.getState().projects[projectId]
     if (session && session.dirty) {
+      const cadDocName = session.cadIntegration?.docPath
+        ? session.cadIntegration.docPath.split(/[\\/]/).pop()
+        : session.cadIntegration?.baseBodyName
       const projectName =
-        session.doc.meta.projectName ||
+        (session.doc.meta.projectName && session.doc.meta.projectName !== '未命名工程' ? session.doc.meta.projectName : null) ||
+        cadDocName ||
         session.filePath?.split(/[\\/]/).pop()?.replace(/\.sfb$/i, '') ||
         '未命名工程'
       const choice = await window.projectApi.confirmClose(projectName)

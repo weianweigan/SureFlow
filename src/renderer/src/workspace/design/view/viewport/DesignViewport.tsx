@@ -24,7 +24,9 @@ import {
   Image as ImageIcon,
   Box,
   CheckCircle2,
-  Ruler
+  Ruler,
+  RefreshCw,
+  Camera
 } from 'lucide-react'
 import { ActiveClearanceBar } from '../checks/ActiveClearanceBar'
 import { AnalysisEvidenceOverlay } from './AnalysisEvidenceOverlay'
@@ -87,6 +89,8 @@ import type { MaterialConfig } from '@shared/design/types'
 import type { ThreeEvent } from '@react-three/fiber'
 import { cn } from '@renderer/lib/utils'
 import { Popover, PopoverTrigger, PopoverContent } from '@renderer/components/ui/popover'
+import { syncCameraToCad } from '../../services/cadIntegrationService'
+import type { SyncCameraViewParams } from '@shared/cad/cadBridgeTypes'
 
 /** 视角预设（纯正交，无透视） */
 export type ViewPreset =
@@ -104,6 +108,14 @@ interface CameraRigProps {
   fitTrigger: number
   center: THREE.Vector3
   focusTarget?: { position: THREE.Vector3; target: THREE.Vector3; up?: THREE.Vector3; key: number } | null
+  cameraSyncTarget?: {
+    position: THREE.Vector3
+    target: THREE.Vector3
+    up: THREE.Vector3
+    zoom?: number
+    viewHeight?: number
+    key: number
+  } | null
 }
 
 /**
@@ -112,7 +124,7 @@ interface CameraRigProps {
  * - 250ms 平滑居中适应动画 (Fit to View)
  * - 纯正交投影，无透视支持
  */
-function CameraRig({ preset, boundsRadius, fitTrigger, center, focusTarget }: CameraRigProps): null {
+function CameraRig({ preset, boundsRadius, fitTrigger, center, focusTarget, cameraSyncTarget }: CameraRigProps): null {
   const { camera, size } = useThree()
   const controls = useThree((s) => s.controls) as any
 
@@ -263,6 +275,36 @@ function CameraRig({ preset, boundsRadius, fitTrigger, center, focusTarget }: Ca
     }
   }, [focusTarget, controls])
 
+  // 响应外部 CAD 视角同步请求 (SYNC_CAMERA_VIEW)
+  useEffect(() => {
+    if (!controls || !cameraSyncTarget) return
+    const orthoCam = camera as THREE.OrthographicCamera
+    const currentZoom = orthoCam.zoom || 1
+    const canvasHeight = orthoCam.top !== undefined && orthoCam.bottom !== undefined && orthoCam.top !== orthoCam.bottom
+      ? (orthoCam.top - orthoCam.bottom)
+      : (size.height || 600)
+
+    let targetZoom = currentZoom
+    if (typeof cameraSyncTarget.viewHeight === 'number' && cameraSyncTarget.viewHeight > 0) {
+      targetZoom = canvasHeight / cameraSyncTarget.viewHeight
+    } else if (typeof cameraSyncTarget.zoom === 'number' && cameraSyncTarget.zoom > 0) {
+      targetZoom = cameraSyncTarget.zoom
+    }
+
+    animRef.current = {
+      startTime: performance.now(),
+      startPos: camera.position.clone(),
+      targetPos: cameraSyncTarget.position.clone(),
+      startTarget: controls.target ? controls.target.clone() : center.clone(),
+      endTarget: cameraSyncTarget.target.clone(),
+      startUp: camera.up.clone(),
+      targetUp: cameraSyncTarget.up.clone(),
+      startZoom: currentZoom,
+      targetZoom,
+      active: true
+    }
+  }, [cameraSyncTarget, controls, center, size.height])
+
   // 250ms 缓动插值
   useFrame(() => {
     if (!animRef.current.active || !controls) return
@@ -392,6 +434,18 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
   const [isInclinedPopoverOpen, setIsInclinedPopoverOpen] = useState(false)
   const [faceClickPoint, setFaceClickPoint] = useState<THREE.Vector3 | null>(null)
   const selectedCavityId = session?.selected?.type === 'cavity' ? session.selected.id : null
+
+  // CAD 双向视角同步状态
+  const [cameraSyncTarget, setCameraSyncTarget] = useState<{
+    position: THREE.Vector3
+    target: THREE.Vector3
+    up: THREE.Vector3
+    zoom?: number
+    viewHeight?: number
+    key: number
+  } | null>(null)
+  const [isSyncingCamera, setIsSyncingCamera] = useState(false)
+  const [syncStatusText, setSyncStatusText] = useState<string | null>(null)
 
   // 设计检查与主动间隙状态 (PRD-FR-04-15)
   const isChecksOpen = useAnalysisStore((s) => s.isOpen)
@@ -912,6 +966,93 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
     return () => window.removeEventListener('sureflow:fit-view', handleFitEvent)
   }, [handleFitView])
 
+  // 监听来自外部 CAD 的视角同步事件 (SYNC_CAMERA_VIEW)
+  useEffect(() => {
+    const handleSyncCameraEvent = (e: any) => {
+      const data = e.detail as SyncCameraViewParams
+      if (!data) return
+      if (data.docGuid && session?.cadIntegration?.docGuid && data.docGuid !== session.cadIntegration.docGuid) {
+        return
+      }
+      if (data.projectId && data.projectId !== projectId) {
+        return
+      }
+
+      setCameraSyncTarget({
+        position: new THREE.Vector3(...data.position),
+        target: new THREE.Vector3(...data.target),
+        up: new THREE.Vector3(...data.up),
+        zoom: data.zoom,
+        viewHeight: data.viewHeight,
+        key: Date.now()
+      })
+      setSyncStatusText(_t('已同步 CAD 摄像机视角'))
+      setTimeout(() => setSyncStatusText(null), 2500)
+    }
+    window.addEventListener('sureflow:sync-camera-from-cad', handleSyncCameraEvent)
+    return () => window.removeEventListener('sureflow:sync-camera-from-cad', handleSyncCameraEvent)
+  }, [projectId, session?.cadIntegration?.docGuid])
+
+  // 主动将当前视口相机姿态同步至 CAD
+  const handleSyncCameraToCad = useCallback(async () => {
+    if (!threeRef.current) return
+    const state = threeRef.current()
+    const camera = state.camera as THREE.OrthographicCamera
+    const controls = state.controls as any
+
+    const pos = camera.position
+    const [dimX, dimY, dimZ] = session?.doc?.baseBody?.dimensions ?? [100, 100, 100]
+    const defaultCenter = new THREE.Vector3(dimX / 2, dimY / 2, dimZ / 2)
+    const tgt = controls?.target ? controls.target : defaultCenter
+    const up = camera.up
+
+    // 视口定向基
+    const z_view = new THREE.Vector3().subVectors(pos, tgt).normalize()
+    const x_view = new THREE.Vector3().crossVectors(up, z_view).normalize()
+    const y_view = new THREE.Vector3().crossVectors(z_view, x_view).normalize()
+
+    const rotMatrix = [
+      x_view.x, x_view.y, x_view.z,
+      y_view.x, y_view.y, y_view.z,
+      z_view.x, z_view.y, z_view.z
+    ]
+
+    const canvasHeight = camera.top !== undefined && camera.bottom !== undefined && camera.top !== camera.bottom
+      ? (camera.top - camera.bottom)
+      : (state.size?.height || 600)
+    const viewHeight = canvasHeight / (camera.zoom || 1)
+
+    const cameraParams: SyncCameraViewParams = {
+      docGuid: session?.cadIntegration?.docGuid,
+      projectId,
+      position: [pos.x, pos.y, pos.z],
+      target: [tgt.x, tgt.y, tgt.z],
+      up: [up.x, up.y, up.z],
+      zoom: camera.zoom,
+      viewHeight,
+      projectionType: 'ORTHOGRAPHIC',
+      rotationMatrix: rotMatrix
+    }
+
+    setIsSyncingCamera(true)
+    try {
+      const res = await syncCameraToCad(session?.cadIntegration?.docGuid, cameraParams)
+      if (res.success) {
+        setSyncStatusText(_t('已将视角同步至 CAD'))
+        setTimeout(() => setSyncStatusText(null), 2500)
+      } else {
+        setSyncStatusText(res.message || _t('同步失败'))
+        setTimeout(() => setSyncStatusText(null), 3000)
+      }
+    } catch (err: any) {
+      console.error('[DesignViewport] 同步视角至 CAD 失败:', err)
+      setSyncStatusText(_t('同步异常: ') + (err?.message || String(err)))
+      setTimeout(() => setSyncStatusText(null), 3000)
+    } finally {
+      setIsSyncingCamera(false)
+    }
+  }, [projectId, session?.cadIntegration?.docGuid, session?.doc?.baseBody?.dimensions])
+
   // F 键智能正视与全屏居中快捷键、Z 键聚焦、Ctrl+G 成组/解散组与 Esc 取消选择
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -1344,20 +1485,47 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
 
         {/* 中间：文件与历史动作 */}
         <div className="flex items-center gap-1">
+          {session.cadIntegration && (
+            <div 
+              className={cn(
+                "flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] border mr-0.5 select-none font-medium transition-colors",
+                session.cadIntegration.connectionStatus === 'CONNECTED'
+                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
+                  : "bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400"
+              )}
+              title={
+                session.cadIntegration.connectionStatus === 'CONNECTED'
+                  ? `已与 ${session.cadIntegration.cadType} 建立双向协同，保存时自动更新零件内部数据`
+                  : 'CAD 宿主脱机，保存时将引导另存为独立 .sfb 文件'
+              }
+            >
+              <span className={cn("size-1.5 rounded-full", session.cadIntegration.connectionStatus === 'CONNECTED' ? "bg-emerald-500 animate-pulse" : "bg-amber-500")} />
+              <span>{session.cadIntegration.cadType} 协同</span>
+            </div>
+          )}
+
           <button
             type="button"
-            disabled={saving || (!dirty && !!session.filePath)}
-            title={_t("保存工程（Ctrl+S）")}
+            disabled={saving || (!dirty && !session.cadIntegration && !!session.filePath)}
+            title={
+              session.cadIntegration?.connectionStatus === 'CONNECTED'
+                ? _t("同步保存至 CAD 宿主（Ctrl+S）")
+                : _t("保存工程（Ctrl+S）")
+            }
             className={cn(
               'flex size-7 items-center justify-center rounded-md border transition-colors cursor-pointer',
               dirty
                 ? 'border-transparent bg-primary text-primary-foreground hover:bg-primary/90'
-                : 'border-transparent text-muted-foreground hover:bg-accent hover:text-foreground'
+                : session.cadIntegration?.connectionStatus === 'CONNECTED'
+                  ? 'border-emerald-500/30 text-emerald-600 hover:bg-emerald-500/10'
+                  : 'border-transparent text-muted-foreground hover:bg-accent hover:text-foreground'
             )}
             onClick={() => void handleSave()}
           >
             {saving ? (
               <span className="size-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+            ) : session.cadIntegration?.connectionStatus === 'CONNECTED' ? (
+              <RefreshCw className="size-3.5" />
             ) : (
               <Save className="size-4" />
             )}
@@ -1373,7 +1541,16 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
                 <ChevronDown className="size-4" />
               </button>
             </PopoverTrigger>
-            <PopoverContent side="bottom" align="center" className="w-44 p-1 flex flex-col gap-1 z-50">
+            <PopoverContent side="bottom" align="center" className="w-48 p-1 flex flex-col gap-1 z-50">
+              {session.cadIntegration?.connectionStatus === 'CONNECTED' && (
+                <button
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-emerald-600 font-medium hover:bg-emerald-500/10 transition-colors cursor-pointer"
+                  onClick={() => void handleSave()}
+                >
+                  <RefreshCw className="size-3.5 text-emerald-500" />
+                  <span>{_t("同步保存至 CAD 宿主")}</span>
+                </button>
+              )}
               <button
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
                 onClick={() => void openProjectDialog()}
@@ -1386,7 +1563,7 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
                 onClick={() => void handleSaveAs()}
               >
                 <Save className="size-3.5 text-muted-foreground" />
-                <span>{_t("另存为...")}</span>
+                <span>{session.cadIntegration ? _t("另存为独立 .sfb 文件...") : _t("另存为...")}</span>
               </button>
               <button
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
@@ -1514,6 +1691,14 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
                 className={cn('flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors cursor-pointer', viewPreset === 'right' ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent/50 hover:text-accent-foreground')}
                 onClick={() => setViewPreset('right')}
               >{_t("右视图 (Right)")}</button>
+              <div className="my-1 h-px bg-border/60" />
+              <button
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-foreground hover:bg-accent/50 hover:text-accent-foreground transition-colors cursor-pointer"
+                onClick={() => void handleSyncCameraToCad()}
+              >
+                <Camera className="size-3.5 text-emerald-500" />
+                <span>{_t("同步当前视角至 CAD")}</span>
+              </button>
             </PopoverContent>
           </Popover>
 
@@ -1525,6 +1710,24 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
             onClick={handleFitView}
           >
             <Focus className="size-3.5" />
+          </button>
+
+          {/* 同步视角至 CAD (SolidWorks 等) */}
+          <button
+            type="button"
+            disabled={isSyncingCamera}
+            title={session?.cadIntegration?.connectionStatus === 'CONNECTED'
+              ? _t("同步视角至 CAD（SolidWorks 等）")
+              : _t("同步视角至 CAD（未检测到活动 CAD 连接）")}
+            className={cn(
+              "flex size-7 items-center justify-center rounded border transition-colors cursor-pointer",
+              session?.cadIntegration?.connectionStatus === 'CONNECTED'
+                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20"
+                : "border-border text-muted-foreground hover:bg-accent hover:text-foreground opacity-60"
+            )}
+            onClick={() => void handleSyncCameraToCad()}
+          >
+            <Camera className={cn("size-3.5", isSyncingCamera && "animate-pulse")} />
           </button>
 
           <div className="h-4 w-px bg-border mx-0.5" />
@@ -1620,6 +1823,12 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
         style={{ background: activeBgConfig.cssGradient }}
       >
         <SnapStatusOverlay projectId={projectId} />
+        {syncStatusText && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-600/90 text-white text-xs shadow-lg backdrop-blur animate-in fade-in zoom-in-95 pointer-events-none">
+            <Camera className="size-3.5" />
+            <span>{syncStatusText}</span>
+          </div>
+        )}
         <Canvas
           orthographic
           onPointerMissed={(e) => {
@@ -1795,6 +2004,7 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
             fitTrigger={fitTrigger}
             center={center}
             focusTarget={focusTarget}
+            cameraSyncTarget={cameraSyncTarget}
           />
           <OrbitControls
             ref={orbitControlsRef}

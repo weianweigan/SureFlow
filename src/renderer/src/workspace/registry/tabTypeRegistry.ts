@@ -14,6 +14,7 @@ export type TabParams =
   | { kind: 'settings' }
   | { kind: 'home' }
   | { kind: 'library' }
+  | { kind: 'connectors' }
   | {
       kind: 'design'
       projectId: string
@@ -37,7 +38,7 @@ export type TabParams =
       referenceBasePath?: string
     }
 
-export type TabType = 'settings' | 'home' | 'library' | 'design' | 'viewer'
+export type TabType = 'settings' | 'home' | 'library' | 'design' | 'viewer' | 'connectors'
 
 export interface TabTypeDef<P = TabParams> {
   /** Tab 类型标识，同时作为 dockview components key */
@@ -112,6 +113,16 @@ export const TAB_REGISTRY: Record<TabType, TabTypeDef> = {
       subType: 'url',
       target: 'https://'
     })
+  },
+  connectors: {
+    type: 'connectors',
+    component: 'connectors',
+    singleton: true,
+    closable: true,
+    tabComponent: 'connectors-tab',
+    panelIdPrefix: 'connectors',
+    title: () => 'CAD 连接器',
+    defaultParams: () => ({ kind: 'connectors' })
   }
 }
 

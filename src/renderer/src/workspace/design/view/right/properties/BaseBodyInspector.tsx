@@ -16,7 +16,7 @@ import {
   resolveMaterialConfig
 } from '@shared/design/types'
 import { cn } from '@renderer/lib/utils'
-import { FileCode, Loader2, AlertTriangle, RefreshCw, FolderOpen } from 'lucide-react'
+import { FileCode, Loader2, AlertTriangle, RefreshCw, FolderOpen, Lock } from 'lucide-react'
 import { assetUrl } from '../../../../library/view/typeIcons'
 import { parseStepToThreeGeometry } from '@renderer/workspace/tabs/viewer/stepLoader'
 
@@ -131,7 +131,13 @@ export const BaseBodyInspector: React.FC<BaseBodyInspectorProps> = ({ projectId 
     }
   }
 
+  const isCadCustomBody = Boolean(
+    session?.cadIntegration?.isCustomBaseBody ||
+      (session?.cadIntegration?.connectionStatus === 'CONNECTED' && isStepType)
+  )
+
   const handleShapeSelect = (optId: BaseBodyTemplate | 'step') => {
+    if (isCadCustomBody) return
     if (optId === 'step') {
       if (doc.baseBody.stepContent) {
         setBaseType(projectId, 'step')
@@ -174,6 +180,14 @@ export const BaseBodyInspector: React.FC<BaseBodyInspectorProps> = ({ projectId 
       {/* 1. 基本形状切换 */}
       <FormSectionWrapper title={_t('阀块基本形状')} isFirst={!session.baseBodyError}>
         <div className="space-y-2">
+          {/* CAD 自定义实体锁定提示 */}
+          {isCadCustomBody && (
+            <div className="flex items-center gap-1.5 rounded-md bg-blue-500/10 border border-blue-500/20 px-2.5 py-1.5 text-xs text-blue-600 dark:text-blue-400">
+              <Lock className="size-3.5 shrink-0" />
+              <span>{_t('基体由 SolidWorks 零件实体控制，SureFlow 端不允许修改基体外形尺寸')}</span>
+            </div>
+          )}
+
           <div className="grid grid-cols-4 gap-1.5">
             {TEMPLATE_OPTIONS.map((opt) => {
               const isActive = isStepType
@@ -184,10 +198,12 @@ export const BaseBodyInspector: React.FC<BaseBodyInspectorProps> = ({ projectId 
                 <button
                   key={opt.id}
                   type="button"
-                  title={_t(opt.name)}
+                  disabled={isCadCustomBody}
+                  title={isCadCustomBody ? _t('基体由 SolidWorks 实体控制，不可修改') : _t(opt.name)}
                   onClick={() => handleShapeSelect(opt.id)}
                   className={cn(
-                    'group relative flex flex-col items-center gap-1 rounded-md border p-1 text-center transition-all cursor-pointer',
+                    'group relative flex flex-col items-center gap-1 rounded-md border p-1 text-center transition-all',
+                    isCadCustomBody ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer',
                     isActive
                       ? 'border-primary bg-primary/15 text-primary shadow-2xs ring-1 ring-primary/40 font-semibold'
                       : 'border-border/60 bg-background text-muted-foreground hover:border-border hover:bg-accent hover:text-foreground'
@@ -221,41 +237,58 @@ export const BaseBodyInspector: React.FC<BaseBodyInspectorProps> = ({ projectId 
                   </span>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    type="button"
-                    disabled={isImporting}
-                    title={doc.baseBody.stepFilePath ? _t('从源文件快速重新加载最新模型') : _t('重新选择文件')}
-                    onClick={handleRefreshFromSource}
-                    className="flex shrink-0 items-center gap-1 rounded border border-primary/40 bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary hover:bg-primary/20 cursor-pointer transition-colors"
-                  >
-                    {isImporting ? (
-                      <Loader2 className="size-3 animate-spin" />
-                    ) : (
-                      <RefreshCw className="size-3" />
-                    )}
-                    <span>{_t('从源文件更新')}</span>
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isImporting}
-                    title={_t('选择其他 STEP 文件')}
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex shrink-0 items-center gap-1 rounded border border-border/80 bg-background px-1.5 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer transition-colors"
-                  >
-                    <FolderOpen className="size-3" />
-                    <span>{_t('更换')}</span>
-                  </button>
+                  {isCadCustomBody ? (
+                    <span className="flex items-center gap-1 rounded bg-blue-500/10 border border-blue-500/30 px-2 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">
+                      <Lock className="size-3" />
+                      <span>SolidWorks 协同</span>
+                    </span>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        disabled={isImporting}
+                        title={doc.baseBody.stepFilePath ? _t('从源文件快速重新加载最新模型') : _t('重新选择文件')}
+                        onClick={handleRefreshFromSource}
+                        className="flex shrink-0 items-center gap-1 rounded border border-primary/40 bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary hover:bg-primary/20 cursor-pointer transition-colors"
+                      >
+                        {isImporting ? (
+                          <Loader2 className="size-3 animate-spin" />
+                        ) : (
+                          <RefreshCw className="size-3" />
+                        )}
+                        <span>{_t('从源文件更新')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isImporting}
+                        title={_t('选择其他 STEP 文件')}
+                        onClick={() => fileInputRef.current?.click()}
+                        className="flex shrink-0 items-center gap-1 rounded border border-border/80 bg-background px-1.5 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer transition-colors"
+                      >
+                        <FolderOpen className="size-3" />
+                        <span>{_t('更换')}</span>
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
 
               {/* 源文件物理路径展示 */}
               <div className="flex items-center gap-1.5 rounded bg-background/60 px-2 py-1 text-[11px] text-muted-foreground border border-border/40 min-w-0">
-                <span className="shrink-0 text-foreground/40 font-mono text-[10px]">{_t('源路径')}:</span>
+                <span className="shrink-0 text-foreground/40 font-mono text-[10px]">
+                  {isCadCustomBody ? _t('源实体') : _t('源路径')}:
+                </span>
                 <span
                   className="truncate font-mono text-[10px] text-foreground/80 select-all"
-                  title={doc.baseBody.stepFilePath || _t('未记录源文件路径 (可通过更换文件重新选择并绑定)')}
+                  title={
+                    isCadCustomBody
+                      ? session.cadIntegration?.baseBodyName || doc.baseBody.stepFileName || 'SolidWorks IBody2'
+                      : doc.baseBody.stepFilePath || _t('未记录源文件路径 (可通过更换文件重新选择并绑定)')
+                  }
                 >
-                  {doc.baseBody.stepFilePath || _t('未绑定物理路径 (请点击更换文件绑定)')}
+                  {isCadCustomBody
+                    ? session.cadIntegration?.baseBodyName || doc.baseBody.stepFileName || 'SolidWorks IBody2'
+                    : doc.baseBody.stepFilePath || _t('未绑定物理路径 (请点击更换文件绑定)')}
                 </span>
               </div>
 

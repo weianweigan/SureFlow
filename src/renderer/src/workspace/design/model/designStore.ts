@@ -13,6 +13,7 @@ import {
   createDefaultProject,
   getFacesForTemplate,
   type SfbProject,
+  type SfbProjectMeta,
   type BaseBodyTemplate,
   type BaseFaceDefinition,
   type CavityInstance,
@@ -170,10 +171,16 @@ export interface DesignProjectSession {
   initialCacheBuffer?: ArrayBuffer | null
   initialGlbBuffer?: ArrayBuffer | null
   baseBodyError?: string | null
+  cadIntegration?: import('@shared/cad/cadBridgeTypes').CadIntegrationSession
 }
 
 export interface DesignState {
   projects: Record<string, DesignProjectSession>
+
+  /** 设置/更新 CAD 协同会话绑定 */
+  setCadIntegration: (projectId: string, session: import('@shared/cad/cadBridgeTypes').CadIntegrationSession) => void
+  /** 解除 CAD 协同会话绑定（如崩溃另存为后脱机独立） */
+  detachCadIntegration: (projectId: string) => void
 
   /** 初始化或激活工程 Tab 会话 */
   initProject: (
@@ -181,7 +188,8 @@ export interface DesignState {
     initialDoc?: SfbProject,
     filePath?: string,
     initialCacheBuffer?: ArrayBuffer | null,
-    initialGlbBuffer?: ArrayBuffer | null
+    initialGlbBuffer?: ArrayBuffer | null,
+    cadIntegration?: import('@shared/cad/cadBridgeTypes').CadIntegrationSession
   ) => void
   /** 关闭工程 Tab 会话 */
   removeProject: (projectId: string) => void
@@ -206,6 +214,8 @@ export interface DesignState {
   ) => Promise<boolean>
   /** 设置并记录上一次导出 STEP 实体模型的路径（可传相对路径） */
   setLastExportPath: (projectId: string, exportPath: string) => void
+  /** 更新工程元数据（如工程名称、修改时间等） */
+  updateMeta: (projectId: string, patch: Partial<SfbProjectMeta>) => void
 
   /** 选中特征（基体、面、孔腔、分组） */
   selectFeature: (projectId: string, selection: FeatureSelection) => void
@@ -370,7 +380,38 @@ function pushHistory(s: DesignProjectSession): void {
 export const useDesignStore = create<DesignState>((set, get) => ({
   projects: {},
 
-  initProject: (projectId, initialDoc, filePath, initialCacheBuffer, initialGlbBuffer) => {
+  setCadIntegration: (projectId, session) => {
+    set(
+      produce((state: DesignState) => {
+        if (!state.projects[projectId]) {
+          state.projects[projectId] = {
+            projectId,
+            dirty: false,
+            saving: false,
+            doc: createDefaultProject(),
+            selected: { type: 'base', id: 'base' },
+            undoStack: [],
+            redoStack: [],
+            cadIntegration: session
+          }
+        } else {
+          state.projects[projectId].cadIntegration = session
+        }
+      })
+    )
+  },
+
+  detachCadIntegration: (projectId) => {
+    set(
+      produce((state: DesignState) => {
+        if (state.projects[projectId]) {
+          delete state.projects[projectId].cadIntegration
+        }
+      })
+    )
+  },
+
+  initProject: (projectId, initialDoc, filePath, initialCacheBuffer, initialGlbBuffer, cadIntegration) => {
     set(
       produce((state: DesignState) => {
         if (!state.projects[projectId]) {
@@ -385,7 +426,18 @@ export const useDesignStore = create<DesignState>((set, get) => ({
             undoStack: [],
             redoStack: [],
             initialCacheBuffer,
-            initialGlbBuffer
+            initialGlbBuffer,
+            cadIntegration
+          }
+        } else {
+          if (cadIntegration) {
+            state.projects[projectId].cadIntegration = cadIntegration
+          }
+          if (initialDoc) {
+            state.projects[projectId].doc = initialDoc
+          }
+          if (filePath !== undefined) {
+            state.projects[projectId].filePath = filePath
           }
         }
       })
@@ -409,6 +461,51 @@ export const useDesignStore = create<DesignState>((set, get) => ({
   saveProject: async (projectId, extra) => {
     const session = get().projects[projectId]
     if (!session || session.saving) return false
+
+    // 1. 若当前工程绑定了活跃的外部 CAD 协同会话 (SolidWorks / Creo / NX)，直接存盘并同步至 CAD 宿主
+    if (session.cadIntegration?.connectionStatus === 'CONNECTED') {
+      set(
+        produce((state: DesignState) => {
+          if (state.projects[projectId]) state.projects[projectId].saving = true
+        })
+      )
+
+      try {
+        const { saveAndSyncToCad } = await import('../services/cadIntegrationService')
+        const ok = await saveAndSyncToCad(projectId)
+        if (ok) {
+          set(
+            produce((state: DesignState) => {
+              const p = state.projects[projectId]
+              if (p) {
+                if (extra?.previewImageBase64) p.doc.meta.previewImage = extra.previewImageBase64
+                p.doc.meta.modifiedAt = new Date().toISOString()
+                p.dirty = false
+                p.saving = false
+              }
+            })
+          )
+          return true
+        } else {
+          set(
+            produce((state: DesignState) => {
+              if (state.projects[projectId]) state.projects[projectId].saving = false
+            })
+          )
+          window.alert('同步保存至 CAD 宿主失败，请确认 CAD 软件中对应的工程文件处于打开状态。')
+          return false
+        }
+      } catch (err) {
+        console.error('[DesignStore] 同步至 CAD 宿主异常:', err)
+        set(
+          produce((state: DesignState) => {
+            if (state.projects[projectId]) state.projects[projectId].saving = false
+          })
+        )
+        window.alert(`保存至 CAD 失败: ${String(err)}`)
+        return false
+      }
+    }
 
     // 若无 filePath 则弹出另存为
     if (!session.filePath) {
@@ -500,6 +597,9 @@ export const useDesignStore = create<DesignState>((set, get) => ({
             p.doc.meta.modifiedAt = modifiedAt
             p.dirty = false
             p.saving = false
+            if (p.cadIntegration) {
+              delete p.cadIntegration
+            }
           }
         })
       )
@@ -541,6 +641,17 @@ export const useDesignStore = create<DesignState>((set, get) => ({
         const p = state.projects[projectId]
         if (p) {
           p.doc.meta.lastExportPath = exportPath
+        }
+      })
+    )
+  },
+
+  updateMeta: (projectId, patch) => {
+    set(
+      produce((state: DesignState) => {
+        const p = state.projects[projectId]
+        if (p) {
+          p.doc.meta = { ...p.doc.meta, ...patch }
         }
       })
     )

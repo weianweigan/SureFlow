@@ -1,4 +1,5 @@
 import { AppMenu } from './AppMenu'
+import { ConnectorTitlebarTab } from '@renderer/workspace/connectors/ConnectorTitlebarTab'
 import { useLocale as _useLocale } from '@renderer/i18n/useLocale'
 import { t as _t } from '@shared/i18n'
 import { useEffect, useState } from 'react'
@@ -46,6 +47,7 @@ export function WindowControls(): React.ReactElement {
           </p>
         </div>
       </div>
+      <ConnectorTitlebarTab />
       <AppMenu />
       <div className="sf-window-controls__divider" role="separator" aria-orientation="vertical" />
       <button

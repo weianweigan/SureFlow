@@ -56,5 +56,6 @@ export const PANEL_COMPONENTS: Record<string, DockviewPanelComponent> = {
   home: lazyPanel(() => import('@renderer/workspace/tabs/HomeTabPanel')),
   library: lazyPanel(() => import('@renderer/workspace/tabs/LibraryTabPanel')),
   design: lazyPanel(() => import('@renderer/workspace/tabs/DesignTabPanel')),
-  viewer: lazyPanel(() => import('@renderer/workspace/tabs/ViewerTabPanel'))
+  viewer: lazyPanel(() => import('@renderer/workspace/tabs/ViewerTabPanel')),
+  connectors: lazyPanel(() => import('@renderer/workspace/tabs/ConnectorsTabPanel'))
 }

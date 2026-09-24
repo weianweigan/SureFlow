@@ -13,8 +13,9 @@ import { WindowControls } from '@renderer/components/WindowControls'
 import { Button } from '@renderer/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
 import { Separator } from '@renderer/components/ui/separator'
-import { Plus, FolderOpen, Settings, Library } from 'lucide-react'
-// 注：CAD Socket 桥接服务及 initCadBridgeListener 接口已在 cadIntegrationService 中就绪，待后续 Connector 模块整体规划启用
+import { Plus, FolderOpen, Settings, Library, Cable } from 'lucide-react'
+import { initCadBridgeListener } from './design/services/cadIntegrationService'
+import { CadCrashRecoveryDialog } from './design/view/cad/CadCrashRecoveryDialog'
 
 interface ActionMenuItem {
   id: string
@@ -48,6 +49,12 @@ function NewDesignTabAction(): React.ReactElement {
       icon: Library,
       separatorBefore: true,
       action: () => openPanelByType('library')
+    },
+    {
+      id: 'cad-connectors',
+      label: _t("CAD 协同连接器"),
+      icon: Cable,
+      action: () => openPanelByType('connectors')
     },
     {
       id: 'settings',
@@ -112,17 +119,25 @@ function NewDesignTabAction(): React.ReactElement {
  */
 export function WorkspaceRoot(): React.ReactElement {
   _useLocale()
+
   useEffect(() => window.settingsApi?.onFilesPending(() => {
     if (useWorkspaceStore.getState().api) void consumeSystemFiles().catch(console.error)
   }), [])
   useEffect(() => window.settingsApi?.onNavigateHome?.(() => {
     openPanelByType('home')
   }), [])
-  // 注：CAD Socket 接口与连接器 Connector 模块后续统一规划，暂不默认自动启动监听
-  // useEffect(() => {
-  //   const unsub = initCadBridgeListener()
-  //   return () => unsub()
-  // }, [])
+
+  // 启动 CAD WebSocket 桥接与事件自动监听
+  useEffect(() => {
+    const unsub = initCadBridgeListener()
+    return () => unsub()
+  }, [])
+
+  useEffect(() => {
+    const handleOpenMarket = () => openPanelByType('connectors')
+    window.addEventListener('sureflow:open-connector-market', handleOpenMarket)
+    return () => window.removeEventListener('sureflow:open-connector-market', handleOpenMarket)
+  }, [])
   const onReady = useCallback((event: DockviewReadyEvent) => {
     const api = event.api
     useWorkspaceStore.getState().setApi(api)
@@ -187,6 +202,7 @@ export function WorkspaceRoot(): React.ReactElement {
         />
       </Suspense>
       <WindowControls />
+      <CadCrashRecoveryDialog />
     </div>
   )
 }

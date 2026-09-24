@@ -40,6 +40,7 @@ function loadFromStorage(): RecentFileEntry[] {
         typeof e === 'object' &&
         e !== null &&
         typeof (e as RecentFileEntry).filePath === 'string' &&
+        (e as RecentFileEntry).filePath.toLowerCase().endsWith('.sfb') &&
         typeof (e as RecentFileEntry).name === 'string' &&
         typeof (e as RecentFileEntry).timestamp === 'number'
     )
@@ -62,6 +63,7 @@ export const useRecentFilesStore = create<RecentFilesState>((set) => ({
   addRecent: (filePath: string, name: string) =>
     set((state) => {
       if (!useSettingsStore.getState().values.recordRecent) return state
+      if (!filePath || !filePath.toLowerCase().endsWith('.sfb')) return state
       const filtered = state.recentFiles.filter((e) => e.filePath !== filePath)
       const updated = [{ filePath, name, timestamp: Date.now() }, ...filtered].slice(0, MAX_RECENT)
       saveToStorage(updated)
