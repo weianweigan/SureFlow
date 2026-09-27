@@ -1,3 +1,4 @@
+import { projectBody, physicalScheme } from '@shared/design/cavityTree'
 import { useLocale as _useLocale } from '@renderer/i18n/useLocale'
 import { t as _t } from '@shared/i18n'
 import React, { useState } from 'react'
@@ -9,7 +10,7 @@ import {
 } from './PropertyFormComponents'
 import { useDesignStore, type DesignState } from '../../../model/designStore'
 import { getBoxFaceBasis } from '@shared/design/faceMath'
-import type { CavityInstance, CavityGroup } from '@shared/design/types'
+import type { CavityInstance, CompoundFrame } from '@shared/design/types'
 import { Eye, ArrowUpDown, PlusCircle, Focus, Box } from 'lucide-react'
 
 interface HostFaceInspectorProps {
@@ -28,11 +29,11 @@ export const HostFaceInspector: React.FC<HostFaceInspectorProps> = ({ projectId,
 
   if (!session) return null
   const { doc } = session
-  const [sx, sy, sz] = doc.baseBody.dimensions
-  const activeScheme = doc.schemes.find((s) => s.id === doc.activeSchemeId) || doc.schemes[0]
+  const [sx, sy, sz] = projectBody(doc).dimensions
+  const activeScheme = physicalScheme(doc.schemes.find((s) => s.id === doc.activeSchemeId) || doc.schemes[0])
 
-  const faceBasis = getBoxFaceBasis(faceId, doc.baseBody.dimensions, doc.baseBody)
-  const faceDef = doc.baseBody.faces?.find((f) => f.id.toLowerCase() === faceId.toLowerCase())
+  const faceBasis = getBoxFaceBasis(faceId, projectBody(doc).dimensions, projectBody(doc))
+  const faceDef = projectBody(doc).faces?.find((f) => f.id.toLowerCase() === faceId.toLowerCase())
 
   // 计算面的长宽尺寸 (W × H)
   const isZFace = faceId === 'F1' || faceId === 'F2' || Math.abs(faceBasis.w[2]) > 0.8
@@ -42,12 +43,12 @@ export const HostFaceInspector: React.FC<HostFaceInspectorProps> = ({ projectId,
 
   // 收集挂载在此面的特征：独立孔与组合孔组
   const faceCavities = (activeScheme?.cavities || []).filter((c: CavityInstance) => c.faceId === faceId)
-  const groupsOnFace = (activeScheme?.groups || []).filter((g: CavityGroup) => g.faceId === faceId)
-  const groupIdsOnFace = new Set(groupsOnFace.map((g) => g.id))
+  const groupsOnFace = (activeScheme?.compounds || []).filter((g: CompoundFrame) => g.faceId === faceId)
+  const parentIdsOnFace = new Set(groupsOnFace.map((g) => g.id))
 
   // 过滤出未归属于组合孔的独立孔
   const independentCavities = faceCavities.filter(
-    (c: CavityInstance) => !c.groupId || !groupIdsOnFace.has(c.groupId)
+    (c: CavityInstance) => !c.parentId || !parentIdsOnFace.has(c.parentId)
   )
 
   const totalItemCount = independentCavities.length + groupsOnFace.length
@@ -192,7 +193,7 @@ export const HostFaceInspector: React.FC<HostFaceInspectorProps> = ({ projectId,
             {groupsOnFace.map((grp) => (
               <div
                 key={grp.id}
-                onClick={() => selectFeature(projectId, { type: 'group', id: grp.id })}
+                onClick={() => selectFeature(projectId, { type: 'compound', id: grp.id })}
                 className="flex cursor-pointer items-center justify-between px-2.5 py-1.5 text-xs hover:bg-accent/60 transition-colors"
               >
                 <div className="flex items-center gap-1.5 min-w-0">

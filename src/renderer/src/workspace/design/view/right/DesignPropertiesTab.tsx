@@ -1,3 +1,4 @@
+import { physicalScheme } from '@shared/design/cavityTree'
 import { useLocale as _useLocale } from '@renderer/i18n/useLocale'
 import type { FC } from 'react'
 import { useDesignStore, getSelectedCavityIds } from '../../model/designStore'
@@ -23,7 +24,7 @@ export const DesignPropertiesTab: FC<DesignPropertiesTabProps> = ({ projectId })
 
   if (!session) return null
   const { doc, selected } = session
-  const activeScheme = doc.schemes.find((s) => s.id === doc.activeSchemeId) || doc.schemes[0]
+  const activeScheme = physicalScheme(doc.schemes.find((s) => s.id === doc.activeSchemeId) || doc.schemes[0])
 
   // 1. 选中侧油口 (Side Port)
   if (selected?.type === 'port') {
@@ -47,8 +48,8 @@ export const DesignPropertiesTab: FC<DesignPropertiesTabProps> = ({ projectId })
   }
 
   // 4. 选中组合孔 (Compound Cavity)
-  if (selected?.type === 'group' && (!selected.extraIds || selected.extraIds.length === 0)) {
-    const group = activeScheme?.groups?.find((g) => g.id === selected.id)
+  if (selected?.type === 'compound' && (!selected.extraIds || selected.extraIds.length === 0)) {
+    const group = activeScheme?.compounds?.find((g) => g.id === selected.id)
     if (group) {
       return <CompoundCavityInspector projectId={projectId} group={group} />
     }
@@ -71,8 +72,8 @@ export const DesignPropertiesTab: FC<DesignPropertiesTabProps> = ({ projectId })
     const cavity = activeScheme?.cavities.find((c) => c.instanceId === targetCavityId)
     if (cavity) {
       // 检查是否属于某个组合孔组
-      const parentGroup = cavity.groupId
-        ? activeScheme?.groups?.find((g) => g.id === cavity.groupId)
+      const parentGroup = cavity.parentId
+        ? activeScheme?.compounds?.find((g) => g.id === cavity.parentId)
         : null
 
       if (parentGroup) {

@@ -1,3 +1,4 @@
+import { physicalScheme, physicalCavities } from '@shared/design/cavityTree'
 import { translateMessage } from '@shared/i18n'
 import { useLocale as _useLocale } from '@renderer/i18n/useLocale'
 import { t as _t, msg as _msg } from '@shared/i18n'
@@ -138,7 +139,7 @@ export const StepExportModal: FC<StepExportModalProps> = ({ projectId, isOpen, o
       }
 
       for (let sIdx = 0; sIdx < schemesToExport.length; sIdx++) {
-        const scheme = schemesToExport[sIdx]
+        const scheme = physicalScheme(schemesToExport[sIdx])
 
         // 求解当前方案的通道拓扑结构与颜色
         const cavitiesWithSteps = scheme.cavities
@@ -147,7 +148,7 @@ export const StepExportModal: FC<StepExportModalProps> = ({ projectId, isOpen, o
             ...c,
             steps: c.steps && c.steps.length > 0 ? c.steps : getCavitySteps(c, libraryDoc)
           }))
-        const channelTopology = solveChannelTopology(cavitiesWithSteps, doc.baseBody.dimensions, scheme.channelConfigs)
+        const channelTopology = solveChannelTopology(cavitiesWithSteps, scheme.baseBody.dimensions, scheme.channelConfigs)
         const channelList = channelTopology.channels.map((ch) => ({
           id: ch.id,
           name: ch.name,
@@ -158,7 +159,7 @@ export const StepExportModal: FC<StepExportModalProps> = ({ projectId, isOpen, o
 
         // 构建孔腔几何与 4x4 世界变换矩阵
         const cavitiesInput = cavitiesWithSteps.map((cav, idx) => {
-          const basis = getBoxFaceBasis(cav.faceId, doc.baseBody.dimensions)
+          const basis = getBoxFaceBasis(cav.faceId, scheme.baseBody.dimensions, scheme.baseBody)
           const worldMatrix = Array.from(
             getCavityWorldMatrix(
               basis,
@@ -210,7 +211,11 @@ export const StepExportModal: FC<StepExportModalProps> = ({ projectId, isOpen, o
               stableTopology: true
             },
             baseBody: {
-              dimensions: doc.baseBody.dimensions
+              type: scheme.baseBody.type,
+              template: scheme.baseBody.template,
+              dimensions: scheme.baseBody.dimensions,
+              stepContent: scheme.baseBody.type === 'step' ? scheme.baseBody.stepContent : undefined,
+              extraParams: scheme.baseBody.extraParams
             },
             cavities: cavitiesInput,
             channels: channelList
@@ -342,7 +347,7 @@ export const StepExportModal: FC<StepExportModalProps> = ({ projectId, isOpen, o
                       )}
                     </div>
                     <span className="text-[11px] text-muted-foreground font-mono">
-                      {scheme.cavities.filter((c) => !c.suppressed).length} {_t("孔")}
+                      {physicalCavities(scheme).filter((c) => !c.suppressed).length} {_t("孔")}
                     </span>
                   </label>
                 )

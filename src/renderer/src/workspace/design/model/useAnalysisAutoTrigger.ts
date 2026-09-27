@@ -1,3 +1,4 @@
+import { projectBody, physicalScheme } from '@shared/design/cavityTree'
 /**
  * 自动检查与结果同步 Hook (useAnalysisAutoTrigger)
  * 严格对齐 PRD-FR-04-15 §11
@@ -14,7 +15,7 @@ export function useAnalysisAutoTrigger(projectId: string): {
 } {
   const session = useDesignStore((s) => s.projects[projectId])
   const doc = session?.doc
-  const activeScheme = doc?.schemes.find((s) => s.id === doc.activeSchemeId) || doc?.schemes[0]
+  const activeScheme = physicalScheme(doc?.schemes.find((s) => s.id === doc.activeSchemeId) || doc?.schemes[0])
   const schemeId = activeScheme?.id || 'default'
 
   const updateResults = useAnalysisStore((s) => s.updateResults)
@@ -24,7 +25,7 @@ export function useAnalysisAutoTrigger(projectId: string): {
 
   const config = activeScheme?.checkConfig || DEFAULT_CHECK_CONFIG
   const cavities = activeScheme?.cavities || []
-  const baseBody = doc?.baseBody
+  const baseBody = projectBody(doc)
   const dimensions = baseBody?.dimensions || [100, 100, 100]
 
   // 1. 订阅 Analysis Worker 结果
@@ -65,17 +66,9 @@ export function useAnalysisAutoTrigger(projectId: string): {
     // 轻量特征指纹比较，避免无意义重算
     const stateFingerprint = JSON.stringify({
       schemeId,
-      cavitiesCount: cavities.length,
-      cavities: cavities.map((c) => ({
-        id: c.instanceId,
-        u: c.u,
-        v: c.v,
-        faceId: c.faceId,
-        steps: c.steps?.length,
-        suppressed: c.suppressed
-      })),
-      baseBodyDim: dimensions,
-      configRev: config.ruleEnabled
+      features: activeScheme.features,
+      baseBody,
+      config
     })
 
     if (stateFingerprint !== lastStateRef.current) {

@@ -34,7 +34,7 @@ export interface CadStepExportTask {
   }
   baseBody: {
     type?: 'template' | 'step'
-    template?: 'box' | 'l-shape' | 't-shape'
+    template?: import('@shared/design/types').BaseBodyTemplate
     dimensions: [number, number, number]
     extraParams?: Record<string, number>
     stepContent?: Uint8Array | string

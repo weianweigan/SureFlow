@@ -1,3 +1,5 @@
+import { promoteFeatures } from '../../model/selectionMath'
+import { physicalScheme } from '@shared/design/cavityTree'
 import { useLocale as _useLocale } from '@renderer/i18n/useLocale'
 import { t as _t } from '@shared/i18n'
 import { useMemo, type FC } from 'react'
@@ -11,7 +13,6 @@ import {
   AlignHorizontalDistributeCenter,
   AlignVerticalDistributeCenter,
   Layers,
-  FolderMinus,
   Sparkles,
   FlipHorizontal,
   X
@@ -30,7 +31,7 @@ interface MultiCavityToolbarProps {
  * - 针对孔腔特征级（单孔或多孔组合孔作为一个完整特征单元）
  * - 选中 ≥ 2 个孔特征时自动激活
  * - 悬浮于 3D 视口顶部居中，半透明玻璃拟态
- * - 提供：六向对齐、等距均布、成组/解散、镜像与阵列向导快捷入口
+ * - 提供：六向对齐、等距均布、镜像与阵列向导快捷入口
  */
 export const MultiCavityToolbar: FC<MultiCavityToolbarProps> = ({
   projectId,
@@ -42,16 +43,14 @@ export const MultiCavityToolbar: FC<MultiCavityToolbarProps> = ({
   const selectFeature = useDesignStore((s) => s.selectFeature)
   const applyAlignment = useDesignStore((s) => s.applyAlignment)
   const applyDistribution = useDesignStore((s) => s.applyDistribution)
-  const createGroupFromSelection = useDesignStore((s) => s.createGroupFromSelection)
-  const disbandGroup = useDesignStore((s) => s.disbandGroup)
 
   const selected = session?.selected
-  const activeScheme = session?.doc.schemes.find((s) => s.id === session.doc.activeSchemeId) || session?.doc.schemes[0]
+  const activeScheme = physicalScheme(session?.doc.schemes.find((s) => s.id === session.doc.activeSchemeId) || session?.doc.schemes[0])
 
   // 计算选中的特征列表（单孔或组合孔组）
   const selectedFeatures = useMemo(() => {
-    return getSelectedFeatures(selected)
-  }, [selected])
+    return promoteFeatures(getSelectedFeatures(selected),activeScheme)
+  }, [selected,activeScheme])
 
   // 计算选中的所有底层孔腔 ID
   const selectedCavityIds = useMemo(() => {
@@ -59,10 +58,9 @@ export const MultiCavityToolbar: FC<MultiCavityToolbarProps> = ({
   }, [selected, activeScheme])
 
   const featureCount = selectedFeatures.length
-  const isSingleGroupSelected = selected?.type === 'group' && (!selected.extraIds || selected.extraIds.length === 0)
 
   // 只有在多选 ≥ 2 个孔特征时才激活工具栏
-  if (featureCount < 2) return null
+  if (featureCount < 1) return null
 
   const handleAlign = (type: 'left' | 'center-x' | 'right' | 'top' | 'center-y' | 'bottom') => {
     applyAlignment(projectId, selectedCavityIds, type)
@@ -70,14 +68,6 @@ export const MultiCavityToolbar: FC<MultiCavityToolbarProps> = ({
 
   const handleDistribute = (axis: 'horizontal' | 'vertical') => {
     applyDistribution(projectId, selectedCavityIds, axis)
-  }
-
-  const handleToggleGroup = () => {
-    if (isSingleGroupSelected && selected) {
-      disbandGroup(projectId, selected.id)
-    } else {
-      createGroupFromSelection(projectId)
-    }
   }
 
   const handleDeselect = () => {
@@ -97,6 +87,7 @@ export const MultiCavityToolbar: FC<MultiCavityToolbarProps> = ({
         <button
           type="button"
           title={_t("左对齐 (最小 U 坐标)")}
+          disabled={featureCount < 2}
           onClick={() => handleAlign('left')}
           className="flex size-7 items-center justify-center rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
         >
@@ -105,6 +96,7 @@ export const MultiCavityToolbar: FC<MultiCavityToolbarProps> = ({
         <button
           type="button"
           title={_t("水平居中对齐 (平均 U 坐标)")}
+          disabled={featureCount < 2}
           onClick={() => handleAlign('center-x')}
           className="flex size-7 items-center justify-center rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
         >
@@ -113,6 +105,7 @@ export const MultiCavityToolbar: FC<MultiCavityToolbarProps> = ({
         <button
           type="button"
           title={_t("右对齐 (最大 U 坐标)")}
+          disabled={featureCount < 2}
           onClick={() => handleAlign('right')}
           className="flex size-7 items-center justify-center rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
         >
@@ -121,6 +114,7 @@ export const MultiCavityToolbar: FC<MultiCavityToolbarProps> = ({
         <button
           type="button"
           title={_t("顶端对齐 (最大 V 坐标)")}
+          disabled={featureCount < 2}
           onClick={() => handleAlign('top')}
           className="flex size-7 items-center justify-center rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
         >
@@ -129,6 +123,7 @@ export const MultiCavityToolbar: FC<MultiCavityToolbarProps> = ({
         <button
           type="button"
           title={_t("垂直居中对齐 (平均 V 坐标)")}
+          disabled={featureCount < 2}
           onClick={() => handleAlign('center-y')}
           className="flex size-7 items-center justify-center rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
         >
@@ -137,6 +132,7 @@ export const MultiCavityToolbar: FC<MultiCavityToolbarProps> = ({
         <button
           type="button"
           title={_t("底端对齐 (最小 V 坐标)")}
+          disabled={featureCount < 2}
           onClick={() => handleAlign('bottom')}
           className="flex size-7 items-center justify-center rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
         >
@@ -163,28 +159,6 @@ export const MultiCavityToolbar: FC<MultiCavityToolbarProps> = ({
           className="flex size-7 items-center justify-center rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
         >
           <AlignVerticalDistributeCenter className="size-4" />
-        </button>
-      </div>
-
-      {/* 成组 / 解散组 */}
-      <div className="flex items-center gap-0.5 px-1 border-r border-slate-700/60">
-        <button
-          type="button"
-          title={isSingleGroupSelected ? _t("解散分组 (Ctrl+Shift+G)") : _t("成组 (Ctrl+G)")}
-          onClick={handleToggleGroup}
-          className="flex h-7 items-center gap-1 rounded-lg px-2 text-xs font-medium bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 border border-blue-500/30 transition-colors cursor-pointer"
-        >
-          {isSingleGroupSelected ? (
-            <>
-              <FolderMinus className="size-3.5" />
-              <span>{_t("解散组")}</span>
-            </>
-          ) : (
-            <>
-              <Layers className="size-3.5" />
-              <span>{_t("成组")}</span>
-            </>
-          )}
         </button>
       </div>
 

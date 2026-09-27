@@ -1,3 +1,5 @@
+import { physicalScheme } from '@shared/design/cavityTree'
+import { projectBody } from '@shared/design/cavityTree'
 import { useLocale as _useLocale } from '@renderer/i18n/useLocale'
 import { GizmoVisualLayer } from './GizmoVisualLayer'
 import { t as _t, msg as _msg } from '@shared/i18n'
@@ -64,7 +66,7 @@ export const CavityDepthGizmo: FC<CavityDepthGizmoProps> = ({
   const selected = session?.selected
   const activeScheme = useMemo(() => {
     if (!session?.doc) return null
-    return (
+    return physicalScheme(
       session.doc.schemes.find((s) => s.id === session.doc.activeSchemeId) ||
       session.doc.schemes[0]
     )
@@ -135,7 +137,7 @@ export const CavityDepthGizmo: FC<CavityDepthGizmoProps> = ({
   // 计算当前孔的世界空间基准向量与几何轴向信息
   const geometryInfo = useMemo(() => {
     if (!activeCavity || bottomStepIndex === -1) return null
-    const baseBody = session?.doc?.baseBody
+    const baseBody = projectBody(session?.doc)
     const basis = getBoxFaceBasis(activeCavity.faceId, dimensions, baseBody)
     const mouthPos = localToWorldPoint(
       basis,
@@ -204,7 +206,7 @@ export const CavityDepthGizmo: FC<CavityDepthGizmoProps> = ({
     currentBottomDepth,
     normTilt,
     normAzimuth,
-    session?.doc?.baseBody
+    projectBody(session?.doc)
   ])
 
   // 实时孔腔动态拉伸预览几何体
@@ -538,48 +540,6 @@ export const CavityDepthGizmo: FC<CavityDepthGizmoProps> = ({
               <meshBasicMaterial color="#ffffff" side={THREE.DoubleSide} depthTest={false} />
             </mesh>
 
-            {/* 深度读数徽标与右上角斜孔面板唤醒按钮 */}
-            <Html position={[18, 0, 0]} style={{ pointerEvents: isDraggingDepth ? 'none' : 'auto' }}>
-              <div
-                onPointerDown={(e) => e.stopPropagation()}
-                onPointerUp={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
-                data-html-gizmo="true"
-                className={isDraggingDepth ? 'pointer-events-none font-mono text-[11px] text-amber-300 whitespace-nowrap select-none ml-6 -translate-y-1/2' : `flex items-center gap-1.5 px-2 py-0.5 rounded-[2px] font-mono text-[10px] tracking-tight border shadow-md whitespace-nowrap select-none -translate-y-1/2 ml-1.5 ${isSnapped
-                  ? 'bg-emerald-950/95 text-emerald-300 border-emerald-400'
-                  : 'bg-slate-900/95 text-slate-100 border-slate-700'
-                  }`}
-              >
-                {!isDraggingDepth && <span className={`font-bold ${isSnapped ? 'text-emerald-400' : 'text-amber-400'}`}>
-                  {_t("底孔深")}
-                </span>}
-                {!isDraggingDepth && <span className="w-[1px] h-2.5 bg-slate-700" />}
-                <span className="font-semibold">
-                  {`${currentBottomDepth.toFixed(2)} mm`}
-                </span>
-
-                {/* 唤起右上角斜孔精细化调节 Popover 按钮 */}
-                {!isDraggingDepth && <button
-                  type="button"
-                  data-html-gizmo="true"
-                  title={_t("在右上角展开斜孔精细化调整面板 (倾角与方位角)")}
-                  className={`ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold transition-all border cursor-pointer active:scale-95 ${isInclinedPopoverOpen
-                    ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold shadow-xs'
-                    : hasTilt
-                      ? 'bg-amber-500/30 text-amber-300 hover:bg-amber-500 hover:text-slate-950 border-amber-500/50'
-                      : 'bg-slate-800/90 text-slate-300 hover:bg-amber-500 hover:text-slate-950 hover:border-amber-400 border-slate-700'
-                    }`}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onPointerUp={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onOpenInclinedPopover?.()
-                  }}
-                >
-                  {hasTilt ? _msg`⤹ 斜孔 ${normTilt.toFixed(1)}°` : _t("⤹ 斜孔")}
-                </button>}
-              </div>
-            </Html>
           </group>
         </group>
       </GizmoVisualLayer>

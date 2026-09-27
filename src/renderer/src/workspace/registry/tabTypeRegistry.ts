@@ -8,6 +8,7 @@
  */
 
 import type { SfbProject } from '@shared/design/types'
+import { t } from '@shared/i18n'
 
 /** 面板 params 类型汇总 */
 export type TabParams =
@@ -121,7 +122,7 @@ export const TAB_REGISTRY: Record<TabType, TabTypeDef> = {
     closable: true,
     tabComponent: 'connectors-tab',
     panelIdPrefix: 'connectors',
-    title: () => 'CAD 连接器',
+    title: () => t('CAD 连接器'),
     defaultParams: () => ({ kind: 'connectors' })
   }
 }

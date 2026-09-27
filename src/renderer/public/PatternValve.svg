@@ -10,9 +10,10 @@
 <path d="M23.375 15C25.7912 15 27.75 13.0412 27.75 10.625C27.75 8.20875 25.7912 6.25 23.375 6.25C20.9588 6.25 19 8.20875 19 10.625C19 13.0412 20.9588 15 23.375 15Z" fill="url(#paint4_radial_2_29)"/>
 <path d="M23.375 14.5C25.5151 14.5 27.25 12.7651 27.25 10.625C27.25 8.4849 25.5151 6.75 23.375 6.75C21.2349 6.75 19.5 8.4849 19.5 10.625C19.5 12.7651 21.2349 14.5 23.375 14.5Z" stroke="#053755"/>
 <defs>
-<linearGradient id="paint0_linear_2_29" x1="1.75" y1="4.5" x2="28.9293" y2="26.1238" gradientUnits="userSpaceOnUse">
-<stop stop-color="white"/>
-<stop offset="1" stop-color="#D6D6D6"/>
+<linearGradient id="paint0_linear_2_29" x1="30.25" y1="4.35625" x2="9.38477" y2="32.8169" gradientUnits="userSpaceOnUse">
+<stop stop-color="#666666"/>
+<stop offset="0.5" stop-color="#EEEEEE"/>
+<stop offset="1" stop-color="#AEAEAE"/>
 </linearGradient>
 <radialGradient id="paint1_radial_2_29" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(8.375 10.625) rotate(90) scale(4.375)">
 <stop stop-color="#3A718F"/>

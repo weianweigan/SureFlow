@@ -1,3 +1,4 @@
+import { physicalCavities } from '@shared/design/cavityTree'
 import { useLocale as _useLocale } from '@renderer/i18n/useLocale'
 import { t as _t, msg as _msg } from '@shared/i18n'
 import { useState, type FC } from 'react'
@@ -140,7 +141,7 @@ export const SchemesPanel: FC<SchemesPanelProps> = ({ projectId }) => {
                   <Layers className="size-3.5 shrink-0 text-foreground/50" />
                   <span className="min-w-0 flex-1 truncate text-[11px]">{scheme.name}</span>
                   <span className="shrink-0 text-[10px] text-foreground/40 font-mono">
-                    {scheme.cavities.length}{_t("孔")}</span>
+                    {physicalCavities(scheme).length}{_t("孔")}</span>
 
                   {/* 悬停快捷按钮 */}
                   <div

@@ -14,7 +14,7 @@ import { t as _t } from '@shared/i18n'
  * - Ctrl+Y / Ctrl+Shift+Z: 重做
  */
 
-import { useEffect, useState, type FC } from 'react'
+import { useEffect, useState, useRef, type FC } from 'react'
 import { useDesignStore } from '../model/designStore'
 import { DesignLeftSidebar } from './sidebar/DesignLeftSidebar'
 import { DesignViewport } from './viewport/DesignViewport'
@@ -54,6 +54,7 @@ export const DesignPanel: FC<DesignPanelProps> = ({
   initialGlbBuffer
 }) => {
   _useLocale()
+  const panelRef = useRef<HTMLDivElement>(null)
   const { recheck } = useAnalysisAutoTrigger(projectId)
   const initProject = useDesignStore((s) => s.initProject)
   const session = useDesignStore((s) => s.projects[projectId])
@@ -62,6 +63,7 @@ export const DesignPanel: FC<DesignPanelProps> = ({
   const undo = useDesignStore((s) => s.undo)
   const redo = useDesignStore((s) => s.redo)
 
+  const [legacyNotice, setLegacyNotice] = useState(Boolean(initialDoc && initialDoc.schemaVersion !== '2.0.0'))
   const [leftWidth, setLeftWidth] = useState(() => {
     const saved = localStorage.getItem(STORAGE_KEY_LEFT)
     return saved ? parseInt(saved, 10) : LEFT_DEFAULT
@@ -90,8 +92,22 @@ export const DesignPanel: FC<DesignPanelProps> = ({
   // 全局快捷键
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      if (!panelRef.current?.getClientRects().length) return
       const mod = e.ctrlKey || e.metaKey
+      const editing = (e.target as HTMLElement | null)?.closest('input,textarea,select,[contenteditable="true"]')
+      if (!editing && (e.key === 'Delete' || e.key === 'Backspace')) {
+        e.preventDefault()
+        useDesignStore.getState().deleteSelection(projectId)
+        return
+      }
       if (!mod) return
+      if (!editing && e.key.toLowerCase() === 'c') {
+        e.preventDefault(); useDesignStore.getState().copySelection(projectId); return
+      }
+      if (!editing && e.key.toLowerCase() === 'v') {
+        e.preventDefault(); useDesignStore.getState().pasteSelection(projectId); return
+      }
+      if (editing && e.key.toLowerCase() !== 's') return
 
       const k = e.key.toLowerCase()
       if (k === 's') {
@@ -130,7 +146,7 @@ export const DesignPanel: FC<DesignPanelProps> = ({
   }
 
   return (
-    <div className="flex h-full w-full bg-background overflow-hidden select-none">
+    <div ref={panelRef} className="flex h-full w-full bg-background overflow-hidden select-none">
       {/* 左栏：方案组与特征树 */}
       <aside className="flex shrink-0 flex-col" style={{ width: leftWidth }}>
         <DesignLeftSidebar projectId={projectId} />
@@ -146,6 +162,10 @@ export const DesignPanel: FC<DesignPanelProps> = ({
 
       {/* 中栏：3D 视口与可伸缩检查底栏 (PRD-FR-04-15 §4) */}
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        {legacyNotice && <div role="alert" className="flex items-center gap-2 bg-amber-500/10 p-2 text-xs">
+          <span className="flex-1">{_t('旧版工程已按独立孔打开：原分组的父关系和轮廓不会保留。保存后将使用新版格式。')}</span>
+          <button onClick={() => setLegacyNotice(false)}>{_t('关闭')}</button>
+        </div>}
         <div className="flex-1 min-h-[240px] overflow-hidden">
           <DesignViewport projectId={projectId} />
         </div>

@@ -21,8 +21,8 @@ export type EntityRef =
   | { kind: 'cavity'; instanceId: string }
   | { kind: 'port'; instanceId: string; portId: string }
   | { kind: 'base-face'; faceId: string; geometryFingerprint?: string }
-  | { kind: 'component'; ownerKind: 'cavity' | 'group'; ownerId: string }
-  | { kind: 'outline'; ownerKind: 'cavity' | 'group'; ownerId: string }
+  | { kind: 'component'; ownerKind: 'cavity' | 'compound'; ownerId: string }
+  | { kind: 'outline'; ownerKind: 'cavity' | 'compound'; ownerId: string }
 
 export interface AreaLimits {
   absolute: AreaValue | null
@@ -58,7 +58,7 @@ export interface CheckConfig {
 }
 
 export interface ComponentModelBinding {
-  ownerKind: 'cavity' | 'group'
+  ownerKind: 'cavity' | 'compound'
   ownerId: string
   enabled: boolean
   external?: {

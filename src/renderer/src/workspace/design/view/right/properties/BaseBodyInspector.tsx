@@ -1,3 +1,4 @@
+import { projectBody } from '@shared/design/cavityTree'
 import { useLocale as _useLocale } from '@renderer/i18n/useLocale'
 import { t as _t } from '@shared/i18n'
 import React, { useRef, useState } from 'react'
@@ -48,11 +49,11 @@ export const BaseBodyInspector: React.FC<BaseBodyInspectorProps> = ({ projectId 
 
   if (!session) return null
   const { doc } = session
-  const [sx, sy, sz] = doc.baseBody.dimensions
-  const matConfig = resolveMaterialConfig(doc.baseBody.material, doc.baseBody.materialConfig)
-  const isStepType = doc.baseBody.type === 'step'
-  const currentTemplate = doc.baseBody.template || 'box'
-  const extraParams = doc.baseBody.extraParams || {}
+  const [sx, sy, sz] = projectBody(doc).dimensions
+  const matConfig = resolveMaterialConfig(projectBody(doc).material, projectBody(doc).materialConfig)
+  const isStepType = projectBody(doc).type === 'step'
+  const currentTemplate = projectBody(doc).template || 'box'
+  const extraParams = projectBody(doc).extraParams || {}
 
   const handleStepFile = async (file: File) => {
     setIsImporting(true)
@@ -82,7 +83,7 @@ export const BaseBodyInspector: React.FC<BaseBodyInspectorProps> = ({ projectId 
   }
 
   const handleRefreshFromSource = async () => {
-    const filePath = doc.baseBody.stepFilePath
+    const filePath = projectBody(doc).stepFilePath
     if (!filePath) {
       fileInputRef.current?.click()
       return
@@ -110,7 +111,7 @@ export const BaseBodyInspector: React.FC<BaseBodyInspectorProps> = ({ projectId 
         return
       }
       const text = new TextDecoder().decode(buffer)
-      const fileName = doc.baseBody.stepFileName || filePath.split('/').pop()?.split('\\').pop() || 'model.step'
+      const fileName = projectBody(doc).stepFileName || filePath.split('/').pop()?.split('\\').pop() || 'model.step'
       const { faces: extractedFaces, dimensions: rawDims, stepMesh } = await parseStepToThreeGeometry(buffer)
       setBaseStepModel(projectId, {
         stepContent: text,
@@ -139,7 +140,7 @@ export const BaseBodyInspector: React.FC<BaseBodyInspectorProps> = ({ projectId 
   const handleShapeSelect = (optId: BaseBodyTemplate | 'step') => {
     if (isCadCustomBody) return
     if (optId === 'step') {
-      if (doc.baseBody.stepContent) {
+      if (projectBody(doc).stepContent) {
         setBaseType(projectId, 'step')
         window.dispatchEvent(new CustomEvent('sureflow:fit-view'))
       } else {
@@ -232,8 +233,8 @@ export const BaseBodyInspector: React.FC<BaseBodyInspectorProps> = ({ projectId 
               <div className="flex items-center justify-between gap-1">
                 <div className="flex items-center gap-1.5 font-medium text-foreground truncate min-w-0">
                   <FileCode className="size-4 shrink-0 text-primary" />
-                  <span className="truncate" title={doc.baseBody.stepFileName}>
-                    {doc.baseBody.stepFileName || _t('已导入 STEP 实体')}
+                  <span className="truncate" title={projectBody(doc).stepFileName}>
+                    {projectBody(doc).stepFileName || _t('已导入 STEP 实体')}
                   </span>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
@@ -247,7 +248,7 @@ export const BaseBodyInspector: React.FC<BaseBodyInspectorProps> = ({ projectId 
                       <button
                         type="button"
                         disabled={isImporting}
-                        title={doc.baseBody.stepFilePath ? _t('从源文件快速重新加载最新模型') : _t('重新选择文件')}
+                        title={projectBody(doc).stepFilePath ? _t('从源文件快速重新加载最新模型') : _t('重新选择文件')}
                         onClick={handleRefreshFromSource}
                         className="flex shrink-0 items-center gap-1 rounded border border-primary/40 bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary hover:bg-primary/20 cursor-pointer transition-colors"
                       >
@@ -282,13 +283,13 @@ export const BaseBodyInspector: React.FC<BaseBodyInspectorProps> = ({ projectId 
                   className="truncate font-mono text-[10px] text-foreground/80 select-all"
                   title={
                     isCadCustomBody
-                      ? session.cadIntegration?.baseBodyName || doc.baseBody.stepFileName || 'SolidWorks IBody2'
-                      : doc.baseBody.stepFilePath || _t('未记录源文件路径 (可通过更换文件重新选择并绑定)')
+                      ? session.cadIntegration?.baseBodyName || projectBody(doc).stepFileName || 'SolidWorks IBody2'
+                      : projectBody(doc).stepFilePath || _t('未记录源文件路径 (可通过更换文件重新选择并绑定)')
                   }
                 >
                   {isCadCustomBody
-                    ? session.cadIntegration?.baseBodyName || doc.baseBody.stepFileName || 'SolidWorks IBody2'
-                    : doc.baseBody.stepFilePath || _t('未绑定物理路径 (请点击更换文件绑定)')}
+                    ? session.cadIntegration?.baseBodyName || projectBody(doc).stepFileName || 'SolidWorks IBody2'
+                    : projectBody(doc).stepFilePath || _t('未绑定物理路径 (请点击更换文件绑定)')}
                 </span>
               </div>
 

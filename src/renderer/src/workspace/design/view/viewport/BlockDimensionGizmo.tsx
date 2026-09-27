@@ -1,3 +1,4 @@
+import { projectBody } from '@shared/design/cavityTree'
 import { useLocale as _useLocale } from '@renderer/i18n/useLocale'
 import { t as _t } from '@shared/i18n'
 import { useMemo, useRef, useState, useEffect, type FC } from 'react'
@@ -43,7 +44,7 @@ export const BlockDimensionGizmo: FC<BlockDimensionGizmoProps> = ({
   const setBaseExtraParams = useDesignStore((s) => s.setBaseExtraParams)
   const extrudeFace = useDesignStore((s) => s.extrudeFace)
   const session = useDesignStore((s) => s.projects[projectId])
-  const baseBody = session?.doc?.baseBody
+  const baseBody = projectBody(session?.doc)
   const selected = session?.selected
 
   // ─── 1. 三向驱动尺寸内联编辑状态 ───

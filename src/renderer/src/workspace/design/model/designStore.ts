@@ -1,3 +1,4 @@
+import { activeScheme, projectBody, physicalCavities, rootFeature, patchPhysicalCavity, selectedRoots, cloneFeature, normalizeProject } from '@shared/design/cavityTree'
 /**
  * 设计工程全局状态 Store（Zustand + Immer）
  *
@@ -17,7 +18,11 @@ import {
   type BaseBodyTemplate,
   type BaseFaceDefinition,
   type CavityInstance,
-  type CavityGroup,
+  type CompoundFrame,
+  type CavityFeature,
+  type CompoundCavity,
+  type SubCavity,
+  type SchemeDefinition,
   type MaterialConfig,
   type ChamferMode,
   MATERIAL_PRESETS
@@ -31,18 +36,18 @@ import {
 import { useWorkspaceStore } from '@renderer/workspace/layout/layoutStore'
 import { useRecentFilesStore } from '@renderer/workspace/registry/recentFilesStore'
 
-import { translateRigidSelection } from './selectionMath'
 import { parseStepToThreeGeometry } from '../../tabs/viewer/stepLoader'
 
 const UNDO_LIMIT = 50
+let cavityClipboard: CavityFeature[] = []
 
-export type FeatureSelectionItem = { type: 'cavity' | 'group'; id: string }
+export type FeatureSelectionItem = { type: 'cavity' | 'compound'; id: string }
 
 export type FeatureSelection =
   | { type: 'base'; id: 'base' }
   | { type: 'face'; id: string }
   | { type: 'cavity'; id: string; extraIds?: string[] }
-  | { type: 'group'; id: string; extraIds?: string[] }
+  | { type: 'compound'; id: string; extraIds?: string[] }
   | { type: 'features'; items: FeatureSelectionItem[] }
   | { type: 'scheme'; id: string }
   | { type: 'channel'; id: string; cavityIds: string[] }
@@ -52,10 +57,10 @@ export type FeatureSelection =
 /** 获取当前选中的特征列表（统一抽象为孔腔特征：单孔或组合孔组） */
 export function getSelectedFeatures(
   selection?: FeatureSelection
-): Array<{ type: 'cavity' | 'group'; id: string }> {
+): Array<{ type: 'cavity' | 'compound'; id: string }> {
   if (!selection) return []
   if (selection.type === 'cavity') {
-    const list: Array<{ type: 'cavity' | 'group'; id: string }> = [{ type: 'cavity', id: selection.id }]
+    const list: Array<{ type: 'cavity' | 'compound'; id: string }> = [{ type: 'cavity', id: selection.id }]
     if (selection.extraIds) {
       for (const extra of selection.extraIds) {
         list.push({ type: 'cavity', id: extra })
@@ -66,11 +71,11 @@ export function getSelectedFeatures(
   if (selection.type === 'port') {
     return [{ type: 'cavity', id: selection.cavityId }]
   }
-  if (selection.type === 'group') {
-    const list: Array<{ type: 'cavity' | 'group'; id: string }> = [{ type: 'group', id: selection.id }]
+  if (selection.type === 'compound') {
+    const list: Array<{ type: 'cavity' | 'compound'; id: string }> = [{ type: 'compound', id: selection.id }]
     if (selection.extraIds) {
       for (const extra of selection.extraIds) {
-        list.push({ type: 'group', id: extra })
+        list.push({ type: 'compound', id: extra })
       }
     }
     return list
@@ -85,47 +90,15 @@ export function getSelectedFeatures(
 }
 
 /** 获取当前选中的所有孔腔 ID（单选、多选或组展开） */
-export function getSelectedCavityIds(
-  selection?: FeatureSelection,
-  activeScheme?: { cavities: CavityInstance[]; groups?: CavityGroup[] }
-): string[] {
+export function getSelectedCavityIds(selection?: FeatureSelection, scheme?: { cavities: unknown[]; features?: CavityFeature[] }): string[] {
   if (!selection) return []
-  if (selection.type === 'port') {
-    return [selection.cavityId]
-  }
-  const features = getSelectedFeatures(selection)
-  if (features.length === 0) return []
-
-  const cavityIdSet = new Set<string>()
-  for (const f of features) {
-    if (f.type === 'cavity') {
-      cavityIdSet.add(f.id)
-    } else if (f.type === 'group' && activeScheme?.groups) {
-      const grp = activeScheme.groups.find((g) => g.id === f.id)
-      if (grp) {
-        for (const cid of grp.cavityIds) {
-          cavityIdSet.add(cid)
-        }
-      }
-      if (activeScheme.cavities) {
-        for (const c of activeScheme.cavities) {
-          if (c.groupId === f.id) {
-            cavityIdSet.add(c.instanceId)
-          }
-        }
-      }
-    }
-  }
-  // 兼容直接选择 cavity 且无 activeScheme 传入时的旧逻辑
-  if (cavityIdSet.size === 0 && selection.type === 'cavity') {
-    return selection.extraIds && selection.extraIds.length > 0
-      ? [selection.id, ...selection.extraIds]
-      : [selection.id]
-  }
-  if (selection.type === 'channel') {
-    return [...selection.cavityIds]
-  }
-  return Array.from(cavityIdSet)
+  if (selection.type === 'port') return [selection.cavityId]
+  if (selection.type === 'channel') return selection.cavityIds
+  const ids = getSelectedFeatures(selection).flatMap(f => {
+    const root = scheme && rootFeature(scheme, f.id)
+    return root?.kind === 'compound' && root.instanceId === f.id ? root.children.map(c => c.instanceId) : [f.id]
+  })
+  return [...new Set(ids)]
 }
 
 export interface LinearPatternConfig {
@@ -268,27 +241,30 @@ export interface DesignState {
 
   /** 孔腔管理 */
   addCavity: (projectId: string, cavity: CavityInstance) => void
-  addCavities: (projectId: string, cavities: CavityInstance[], group?: CavityGroup) => void
+  addCavities: (projectId: string, cavities: CavityInstance[], compound?: CompoundFrame) => void
   updateCavity: (projectId: string, instanceId: string, patch: Partial<CavityInstance>) => void
   updateCavityPosition: (projectId: string, instanceId: string, u: number, v: number, faceId?: string) => void
   updateCavityPositions: (
     projectId: string,
     updates: Array<{ id: string; u: number; v: number; faceId?: string }>
   ) => void
+  copySelection: (projectId: string) => void
+  pasteSelection: (projectId: string) => void
+  deleteSelection: (projectId: string) => void
+  updateSubCavity: (projectId: string, id: string, patch: Partial<SubCavity>) => void
   duplicateCavity: (projectId: string, instanceId: string) => void
   deleteCavity: (projectId: string, instanceId: string) => void
+  reorderFeatures: (projectId: string, type: 'cavity' | 'compound', orderedIds: string[]) => void
+  reorderChildren: (projectId: string, parentId: string, orderedIds: string[]) => void
   toggleCavitySuppressed: (projectId: string, instanceId: string) => void
 
-  /** 成组管理 */
-  createGroup: (projectId: string, name: string, cavityIds: string[], faceId?: string) => void
-  createGroupFromSelection: (projectId: string, name?: string) => void
+  /** 组合孔操作 */
   moveRigidCavities: (projectId: string, ids: string[], du: number, dv: number) => void
-  moveGroup: (projectId: string, groupId: string, deltaU: number, deltaV: number) => void
-  rotateGroup: (projectId: string, groupId: string, deltaAngleDeg: number) => void
-  rebindGroupFace: (projectId: string, groupId: string, newFaceId: string, mode: 'center' | 'project', targetOrigin?: { u: number; v: number }) => void
-  disbandGroup: (projectId: string, groupId: string) => void
-  deleteGroup: (projectId: string, groupId: string) => void
-  toggleGroupSuppressed: (projectId: string, groupId: string) => void
+  moveCompound: (projectId: string, parentId: string, deltaU: number, deltaV: number) => void
+  rotateCompound: (projectId: string, parentId: string, deltaAngleDeg: number, pivot?: {u: number; v: number}) => void
+  rebindCompoundFace: (projectId: string, parentId: string, newFaceId: string, mode: 'center' | 'project', targetOrigin?: { u: number; v: number }) => void
+  deleteCompound: (projectId: string, parentId: string) => void
+  toggleCompoundSuppressed: (projectId: string, parentId: string) => void
 
   /** 依附面重绑与对齐、分布、镜像、阵列 */
   rebindCavityFace: (projectId: string, cavityId: string, newFaceId: string, mode: 'center' | 'project', targetOrigin?: { u: number; v: number }) => void
@@ -314,12 +290,14 @@ export interface DesignState {
     }
   ) => void
   /** 替换组合孔组（继承组中心原点、朝向） */
-  replaceGroup: (
+  replaceCompound: (
     projectId: string,
-    groupId: string,
+    parentId: string,
     newGroupData: {
       name: string
       cavityType?: any
+      templateId?: string
+      outline?: CompoundCavity['outline']
       cavities: Array<{
         templateId?: string
         name?: string
@@ -328,6 +306,9 @@ export interface DesignState {
         ports?: any[]
         cavityType?: any
         subHoleName?: string
+        rotation?: number
+        tiltAngle?: number
+        azimuth?: number
         offsetU: number
         offsetV: number
       }>
@@ -365,6 +346,11 @@ export interface DesignState {
   renameChannel: (projectId: string, bindingKey: string, newName: string) => void
   toggleChannelHidden: (projectId: string, bindingKey: string) => void
   toggleChannelIsolated: (projectId: string, channelId: string | null) => void
+}
+
+function mutableHole(scheme: SchemeDefinition, id: string) {
+  const root = rootFeature(scheme, id)
+  return root?.kind === 'compound' ? root.children.find(c => c.instanceId === id) : root
 }
 
 /** 压入撤销历史纯辅助 */
@@ -415,18 +401,19 @@ export const useDesignStore = create<DesignState>((set, get) => ({
     set(
       produce((state: DesignState) => {
         if (!state.projects[projectId]) {
-          const doc = initialDoc || createDefaultProject()
+          const doc = normalizeProject(initialDoc || createDefaultProject())
+          const migrated = Boolean(initialDoc && initialDoc.schemaVersion !== '2.0.0')
           state.projects[projectId] = {
             projectId,
             filePath,
-            dirty: false,
+            dirty: migrated,
             saving: false,
             doc,
             selected: { type: 'base', id: 'base' },
             undoStack: [],
             redoStack: [],
-            initialCacheBuffer,
-            initialGlbBuffer,
+            initialCacheBuffer: initialDoc && initialDoc.schemaVersion !== '2.0.0' ? null : initialCacheBuffer,
+            initialGlbBuffer: initialDoc && initialDoc.schemaVersion !== '2.0.0' ? null : initialGlbBuffer,
             cadIntegration
           }
         } else {
@@ -434,7 +421,9 @@ export const useDesignStore = create<DesignState>((set, get) => ({
             state.projects[projectId].cadIntegration = cadIntegration
           }
           if (initialDoc) {
-            state.projects[projectId].doc = initialDoc
+            const doc = normalizeProject(initialDoc)
+            state.projects[projectId].doc = doc
+            state.projects[projectId].dirty = initialDoc.schemaVersion !== '2.0.0'
           }
           if (filePath !== undefined) {
             state.projects[projectId].filePath = filePath
@@ -445,7 +434,7 @@ export const useDesignStore = create<DesignState>((set, get) => ({
 
     // 若当前工程为 step 基体，每次打开时需要从 stepContent 重建模型，并检测源文件是否存在
     const currentSession = get().projects[projectId]
-    if (currentSession?.doc?.baseBody?.type === 'step') {
+    if (projectBody(currentSession?.doc)?.type === 'step') {
       void get().rebuildStepModel(projectId)
     }
   },
@@ -674,20 +663,20 @@ export const useDesignStore = create<DesignState>((set, get) => ({
         const p = state.projects[projectId]
         if (p) {
           pushHistory(p)
-          p.doc.baseBody.type = 'template'
-          p.doc.baseBody.template = template
-          const newFaces = getFacesForTemplate(template, p.doc.baseBody.dimensions, p.doc.baseBody.extraParams)
-          p.doc.baseBody.faces = newFaces
+          projectBody(p.doc).type = 'template'
+          projectBody(p.doc).template = template
+          const newFaces = getFacesForTemplate(template, projectBody(p.doc).dimensions, projectBody(p.doc).extraParams)
+          projectBody(p.doc).faces = newFaces
 
-          // 悬空孔检测：遍历所有方案的孔腔，若 faceId 不在新模板面中则标记 dangling
+          // 悬空孔检测：遍历当前方案的孔腔，若 faceId 不在新模板面中则标记 dangling
           const validFaceIds = new Set(newFaces.map(f => f.id))
-          for (const scheme of p.doc.schemes) {
-            for (const cav of scheme.cavities) {
+          for (const scheme of [activeScheme(p.doc)]) {
+            for (const cav of physicalCavities(scheme)) {
               if (!validFaceIds.has(cav.faceId)) {
-                cav.dangling = true
+                patchPhysicalCavity(scheme, cav.instanceId, { dangling: true })
               } else {
                 // 如果之前是 dangling 现在面又存在了，恢复正常
-                cav.dangling = false
+                patchPhysicalCavity(scheme, cav.instanceId, { dangling: false })
               }
             }
           }
@@ -702,7 +691,7 @@ export const useDesignStore = create<DesignState>((set, get) => ({
         const p = state.projects[projectId]
         if (p) {
           pushHistory(p)
-          p.doc.baseBody.type = type
+          projectBody(p.doc).type = type
         }
       })
     )
@@ -714,19 +703,19 @@ export const useDesignStore = create<DesignState>((set, get) => ({
         const p = state.projects[projectId]
         if (p) {
           pushHistory(p)
-          p.doc.baseBody.type = 'step'
-          p.doc.baseBody.stepContent = payload.stepContent
-          p.doc.baseBody.stepFileName = payload.stepFileName
+          projectBody(p.doc).type = 'step'
+          projectBody(p.doc).stepContent = payload.stepContent
+          projectBody(p.doc).stepFileName = payload.stepFileName
           if (payload.stepFilePath !== undefined) {
-            p.doc.baseBody.stepFilePath = payload.stepFilePath
+            projectBody(p.doc).stepFilePath = payload.stepFilePath
           }
-          p.doc.baseBody.stepAssetRef = payload.stepAssetRef || payload.stepFilePath || payload.stepFileName
-          p.doc.baseBody.dimensions = [...payload.dimensions]
+          projectBody(p.doc).stepAssetRef = payload.stepAssetRef || payload.stepFilePath || payload.stepFileName
+          projectBody(p.doc).dimensions = [...payload.dimensions]
           if (payload.faces && payload.faces.length > 0) {
-            p.doc.baseBody.faces = payload.faces
+            projectBody(p.doc).faces = payload.faces
           }
           if (payload.stepMesh) {
-            p.doc.baseBody.stepMesh = payload.stepMesh
+            projectBody(p.doc).stepMesh = payload.stepMesh
           }
           p.baseBodyError = null
         }
@@ -736,9 +725,10 @@ export const useDesignStore = create<DesignState>((set, get) => ({
 
   rebuildStepModel: async (projectId: string) => {
     const session = get().projects[projectId]
-    if (!session || session.doc.baseBody.type !== 'step') return false
+    if (!session || projectBody(session.doc).type !== 'step') return false
 
-    const { baseBody } = session.doc
+    const schemeId = activeScheme(session.doc).id
+    const baseBody = projectBody(session.doc)
     const stepPath = baseBody.stepFilePath || baseBody.stepAssetRef
 
     // 1. 原始文件丢失检测与用户提醒
@@ -765,14 +755,11 @@ export const useDesignStore = create<DesignState>((set, get) => ({
         set(
           produce((state: DesignState) => {
             const p = state.projects[projectId]
-            if (p && p.doc.baseBody.type === 'step') {
-              p.doc.baseBody.stepMesh = parsed.stepMesh
-              if (parsed.dimensions) {
-                p.doc.baseBody.dimensions = parsed.dimensions
-              }
-              if (parsed.faces && parsed.faces.length > 0 && (!p.doc.baseBody.faces || p.doc.baseBody.faces.length === 0)) {
-                p.doc.baseBody.faces = parsed.faces
-              }
+            const body = p?.doc.schemes.find(s => s.id === schemeId)?.baseBody
+            if (body?.type === 'step' && body.stepContent === baseBody.stepContent) {
+              body.stepMesh = parsed.stepMesh
+              if (parsed.dimensions) body.dimensions = parsed.dimensions
+              if (parsed.faces?.length && !body.faces?.length) body.faces = parsed.faces
             }
           })
         )
@@ -795,12 +782,12 @@ export const useDesignStore = create<DesignState>((set, get) => ({
         const p = state.projects[projectId]
         if (p) {
           pushHistory(p)
-          p.doc.baseBody.extraParams = {
-            ...(p.doc.baseBody.extraParams || {}),
+          projectBody(p.doc).extraParams = {
+            ...(projectBody(p.doc).extraParams || {}),
             ...params
           }
-          if (p.doc.baseBody.type !== 'step') {
-            p.doc.baseBody.faces = getFacesForTemplate(p.doc.baseBody.template, p.doc.baseBody.dimensions, p.doc.baseBody.extraParams)
+          if (projectBody(p.doc).type !== 'step') {
+            projectBody(p.doc).faces = getFacesForTemplate(projectBody(p.doc).template, projectBody(p.doc).dimensions, projectBody(p.doc).extraParams)
           }
         }
       })
@@ -813,9 +800,9 @@ export const useDesignStore = create<DesignState>((set, get) => ({
         const p = state.projects[projectId]
         if (p) {
           pushHistory(p)
-          p.doc.baseBody.dimensions = [...dimensions]
-          if (p.doc.baseBody.type !== 'step') {
-            p.doc.baseBody.faces = getFacesForTemplate(p.doc.baseBody.template, dimensions, p.doc.baseBody.extraParams)
+          projectBody(p.doc).dimensions = [...dimensions]
+          if (projectBody(p.doc).type !== 'step') {
+            projectBody(p.doc).faces = getFacesForTemplate(projectBody(p.doc).template, dimensions, projectBody(p.doc).extraParams)
           }
         }
       })
@@ -830,7 +817,7 @@ export const useDesignStore = create<DesignState>((set, get) => ({
         if (!p) return
         pushHistory(p)
 
-        const body = p.doc.baseBody
+        const body = projectBody(p.doc)
         const face = body.faces.find((f) => f.id === faceId)
         const binding = face?.paramBinding
 
@@ -865,10 +852,10 @@ export const useDesignStore = create<DesignState>((set, get) => ({
 
         // 若取消勾选孔腔跟随移动，则调整孔腔的 depthOffset 保持其绝对世界坐标不变
         if (!cavitiesFollow) {
-          for (const scheme of p.doc.schemes) {
-            for (const cav of scheme.cavities) {
+          for (const scheme of [activeScheme(p.doc)]) {
+            for (const cav of physicalCavities(scheme)) {
               if (cav.faceId === faceId) {
-                cav.depthOffset = (cav.depthOffset || 0) + delta
+                patchPhysicalCavity(scheme, cav.instanceId, { depthOffset: (cav.depthOffset || 0) + delta })
               }
             }
           }
@@ -883,7 +870,7 @@ export const useDesignStore = create<DesignState>((set, get) => ({
         const p = state.projects[projectId]
         if (p) {
           pushHistory(p)
-          p.doc.baseBody.chamfer = chamfer
+          projectBody(p.doc).chamfer = chamfer
         }
       })
     )
@@ -906,10 +893,10 @@ export const useDesignStore = create<DesignState>((set, get) => ({
         const p = state.projects[projectId]
         if (p) {
           pushHistory(p)
-          p.doc.baseBody.materialConfig = { ...config }
+          projectBody(p.doc).materialConfig = { ...config }
           // 同步更新旧字段用于显示兼容
           const preset = MATERIAL_PRESETS[config.presetId]
-          p.doc.baseBody.material = preset?.label || config.presetId
+          projectBody(p.doc).material = preset?.label || config.presetId
         }
       })
     )
@@ -921,17 +908,17 @@ export const useDesignStore = create<DesignState>((set, get) => ({
         const p = state.projects[projectId]
         if (p) {
           pushHistory(p)
-          if (!p.doc.baseBody.materialConfig) {
+          if (!projectBody(p.doc).materialConfig) {
             const def = MATERIAL_PRESETS['45-steel']
-            p.doc.baseBody.materialConfig = {
+            projectBody(p.doc).materialConfig = {
               presetId: def.presetId, color: def.color,
               metalness: def.metalness, roughness: def.roughness, opacity: def.opacity
             }
           }
-          ;(p.doc.baseBody.materialConfig as any)[key] = value
+          ;(projectBody(p.doc).materialConfig as any)[key] = value
           // 切换为自定义
           if (key !== 'presetId') {
-            p.doc.baseBody.materialConfig.presetId = 'custom'
+            projectBody(p.doc).materialConfig!.presetId = 'custom'
           }
         }
       })
@@ -945,13 +932,14 @@ export const useDesignStore = create<DesignState>((set, get) => ({
         if (!p) return
         pushHistory(p)
         const count = p.doc.schemes.length + 1
-        const id = `scheme-${Date.now()}`
+        const id = `scheme-${crypto.randomUUID()}`
+        const baseBody = JSON.parse(JSON.stringify(projectBody(p.doc)))
         p.doc.schemes.push({
           id,
           name: name || `方案 ${count}`,
           description: '',
-          cavities: [],
-          groups: []
+          baseBody,
+          cavities: []
         })
         p.doc.activeSchemeId = id
       })
@@ -966,10 +954,11 @@ export const useDesignStore = create<DesignState>((set, get) => ({
         const src = p.doc.schemes.find((s) => s.id === schemeId)
         if (!src) return
         pushHistory(p)
-        const id = `scheme-${Date.now()}`
+        const id = `scheme-${crypto.randomUUID()}`
         p.doc.schemes.push({
           ...JSON.parse(JSON.stringify(src)),
           id,
+          baseBody: JSON.parse(JSON.stringify(src.baseBody)),
           name: `${src.name} - 副本`
         })
         p.doc.activeSchemeId = id
@@ -1006,694 +995,302 @@ export const useDesignStore = create<DesignState>((set, get) => ({
   },
 
   setActiveScheme: (projectId, schemeId) => {
-    set(
-      produce((state: DesignState) => {
-        const p = state.projects[projectId]
-        if (p && p.doc.schemes.some((s) => s.id === schemeId)) {
-          p.doc.activeSchemeId = schemeId
-          p.selected = { type: 'scheme', id: schemeId }
-        }
-      })
-    )
-  },
-
-  addCavity: (projectId, cavity) => {
-    set(
-      produce((state: DesignState) => {
-        const p = state.projects[projectId]
-        if (!p) return
-        const scheme = p.doc.schemes.find((s) => s.id === p.doc.activeSchemeId)
-        if (!scheme) return
-        pushHistory(p)
-        scheme.cavities.push(cavity)
-        p.selected = { type: 'cavity', id: cavity.instanceId }
-      })
-    )
-  },
-
-  addCavities: (projectId, cavities, group) => {
-    set(
-      produce((state: DesignState) => {
-        const p = state.projects[projectId]
-        if (!p || cavities.length === 0) return
-        const scheme = p.doc.schemes.find((s) => s.id === p.doc.activeSchemeId)
-        if (!scheme) return
-        pushHistory(p)
-        scheme.cavities.push(...cavities)
-        if (group) {
-          if (!scheme.groups) scheme.groups = []
-          scheme.groups.push(group)
-        }
-        const grp = group || (cavities[0].groupId ? scheme.groups?.find((g) => g.id === cavities[0].groupId) : undefined)
-        p.selected = grp
-          ? { type: 'group', id: grp.id }
-          : { type: 'cavity', id: cavities[0].instanceId }
-      })
-    )
-  },
-
-  updateCavity: (projectId, instanceId, patch) => {
-    set(
-      produce((state: DesignState) => {
-        const p = state.projects[projectId]
-        if (!p) return
-        const scheme = p.doc.schemes.find((s) => s.id === p.doc.activeSchemeId)
-        if (!scheme) return
-        const cav = scheme.cavities.find((c) => c.instanceId === instanceId)
-        if (!cav) return
-        pushHistory(p)
-        Object.assign(cav, patch)
-      })
-    )
-  },
-
-  updateCavityPosition: (projectId, instanceId, u, v, faceId) => {
-    set(
-      produce((state: DesignState) => {
-        const p = state.projects[projectId]
-        if (!p) return
-        const scheme = p.doc.schemes.find((s) => s.id === p.doc.activeSchemeId)
-        if (!scheme) return
-        const cav = scheme.cavities.find((c) => c.instanceId === instanceId)
-        if (!cav) return
-        pushHistory(p)
-        cav.u = u
-        cav.v = v
-        if (faceId) cav.faceId = faceId
-      })
-    )
-  },
-
-  updateCavityPositions: (projectId, updates) => {
-    set(
-      produce((state: DesignState) => {
-        const p = state.projects[projectId]
-        if (!p || updates.length === 0) return
-        const scheme = p.doc.schemes.find((s) => s.id === p.doc.activeSchemeId)
-        if (!scheme) return
-        pushHistory(p)
-        for (const up of updates) {
-          const cav = scheme.cavities.find((c) => c.instanceId === up.id)
-          if (cav) {
-            cav.u = up.u
-            cav.v = up.v
-            if (up.faceId) cav.faceId = up.faceId
-          }
-        }
-      })
-    )
-  },
-
-  duplicateCavity: (projectId, instanceId) => {
-    set(
-      produce((state: DesignState) => {
-        const p = state.projects[projectId]
-        if (!p) return
-        const scheme = p.doc.schemes.find((s) => s.id === p.doc.activeSchemeId)
-        if (!scheme) return
-        const src = scheme.cavities.find((c) => c.instanceId === instanceId)
-        if (!src) return
-        pushHistory(p)
-        const newId = `cav-${Date.now()}-${Math.floor(Math.random() * 1000)}`
-        const clone: CavityInstance = {
-          ...JSON.parse(JSON.stringify(src)),
-          instanceId: newId,
-          name: `${src.name} - 副本`,
-          u: src.u + 10,
-          v: src.v + 10
-        }
-        scheme.cavities.push(clone)
-        p.selected = { type: 'cavity', id: newId }
-      })
-    )
-  },
-
-  deleteCavity: (projectId, instanceId) => {
-    set(
-      produce((state: DesignState) => {
-        const p = state.projects[projectId]
-        if (!p) return
-        const scheme = p.doc.schemes.find((s) => s.id === p.doc.activeSchemeId)
-        if (!scheme) return
-        pushHistory(p)
-        scheme.cavities = scheme.cavities.filter((c) => c.instanceId !== instanceId)
-        // 清理 group 引用
-        if (scheme.groups) {
-          for (const g of scheme.groups) {
-            g.cavityIds = g.cavityIds.filter((id) => id !== instanceId)
-          }
-        }
-        const isSelected =
-          p.selected &&
-          ('id' in p.selected
-            ? p.selected.id === instanceId
-            : p.selected.type === 'features' && p.selected.items.some((it) => it.id === instanceId))
-        if (isSelected) {
-          p.selected = { type: 'base', id: 'base' }
-        }
-      })
-    )
-  },
-
-  toggleCavitySuppressed: (projectId, instanceId) => {
-    set(
-      produce((state: DesignState) => {
-        const p = state.projects[projectId]
-        if (!p) return
-        const scheme = p.doc.schemes.find((s) => s.id === p.doc.activeSchemeId)
-        if (!scheme) return
-        const cav = scheme.cavities.find((c) => c.instanceId === instanceId)
-        if (!cav) return
-        pushHistory(p)
-        cav.suppressed = !cav.suppressed
-      })
-    )
-  },
-
-  createGroup: (projectId, name, cavityIds, faceId) => {
-    set(
-      produce((state: DesignState) => {
-        const p = state.projects[projectId]
-        if (!p) return
-        const scheme = p.doc.schemes.find((s) => s.id === p.doc.activeSchemeId)
-        if (!scheme) return
-        pushHistory(p)
-        if (!scheme.groups) scheme.groups = []
-        const grpId = `grp-${Date.now()}`
-        const memberCavities = scheme.cavities.filter((c) => cavityIds.includes(c.instanceId))
-        const avgU = memberCavities.length > 0 ? memberCavities.reduce((acc, c) => acc + c.u, 0) / memberCavities.length : 0
-        const avgV = memberCavities.length > 0 ? memberCavities.reduce((acc, c) => acc + c.v, 0) / memberCavities.length : 0
-        const grp: CavityGroup = {
-          id: grpId,
-          name,
-          faceId,
-          cavityIds,
-          u: Math.round(avgU * 10) / 10,
-          v: Math.round(avgV * 10) / 10,
-          rotation: 0
-        }
-        for (const c of scheme.cavities) {
-          if (cavityIds.includes(c.instanceId)) {
-            c.groupId = grpId
-          }
-        }
-        scheme.groups.push(grp)
-        p.selected = { type: 'group', id: grp.id }
-      })
-    )
-  },
-
-  createGroupFromSelection: (projectId, name) => {
-    set(
-      produce((state: DesignState) => {
-        const p = state.projects[projectId]
-        if (!p) return
-        const cavityIds = getSelectedCavityIds(p.selected)
-        if (cavityIds.length < 2) return
-        const scheme = p.doc.schemes.find((s) => s.id === p.doc.activeSchemeId)
-        if (!scheme) return
-        pushHistory(p)
-        if (!scheme.groups) scheme.groups = []
-
-        const memberCavities = scheme.cavities.filter((c) => cavityIds.includes(c.instanceId))
-        const firstFace = memberCavities[0]?.faceId
-        const allSameFace = memberCavities.every((c) => c.faceId === firstFace)
-
-        const grpId = `grp-${Date.now()}`
-        const grpName = name || `孔组 ${(scheme.groups?.length || 0) + 1}`
-        const avgU = memberCavities.length > 0 ? memberCavities.reduce((acc, c) => acc + c.u, 0) / memberCavities.length : 0
-        const avgV = memberCavities.length > 0 ? memberCavities.reduce((acc, c) => acc + c.v, 0) / memberCavities.length : 0
-        const grp: CavityGroup = {
-          id: grpId,
-          name: grpName,
-          faceId: allSameFace ? firstFace : undefined,
-          cavityIds,
-          u: Math.round(avgU * 10) / 10,
-          v: Math.round(avgV * 10) / 10,
-          rotation: 0
-        }
-        for (const c of memberCavities) {
-          c.groupId = grpId
-        }
-        scheme.groups.push(grp)
-        p.selected = { type: 'group', id: grpId }
-      })
-    )
-  },
-
-  moveRigidCavities: (projectId, ids, du, dv) => {
-    if (!ids.length || (!du && !dv) || !Number.isFinite(du) || !Number.isFinite(dv)) return
     set(produce((state: DesignState) => {
       const p = state.projects[projectId]
-      const scheme = p?.doc.schemes.find(s => s.id === p.doc.activeSchemeId)
-      if (!p || !scheme) return
-      pushHistory(p)
-      translateRigidSelection(scheme, ids, du, dv)
+      if (p?.doc.schemes.some(s => s.id === schemeId)) {
+        p.doc.activeSchemeId = schemeId
+        p.selected = { type: 'scheme', id: schemeId }
+      }
     }))
   },
 
-  moveGroup: (projectId, groupId, deltaU, deltaV) => {
-    set(
-      produce((state: DesignState) => {
-        const p = state.projects[projectId]
-        if (!p) return
-        const scheme = p.doc.schemes.find((s) => s.id === p.doc.activeSchemeId)
-        if (!scheme || !scheme.groups) return
-        const grp = scheme.groups.find((g) => g.id === groupId)
-        if (!grp) return
-        pushHistory(p)
-        const members = scheme.cavities.filter(c => grp.cavityIds.includes(c.instanceId) || c.groupId === groupId)
-        translateRigidSelection(scheme, members.map(c => c.instanceId), deltaU, deltaV)
-      })
-    )
+  addCavity: (projectId, cavity) => {
+    set(produce((state: DesignState) => {
+      const p = state.projects[projectId]
+      if (!p) return
+      const scheme = activeScheme(p.doc)
+      pushHistory(p)
+      const {parentId: _parent, ...single} = cavity
+      scheme.cavities.push({ ...single, kind: 'single' })
+      p.selected = { type: 'cavity', id: cavity.instanceId }
+    }))
   },
 
-  rotateGroup: (projectId, groupId, deltaAngleDeg) => {
-    set(
-      produce((state: DesignState) => {
-        const p = state.projects[projectId]
-        if (!p) return
-        const scheme = p.doc.schemes.find((s) => s.id === p.doc.activeSchemeId)
-        if (!scheme || !scheme.groups) return
-        const grp = scheme.groups.find((g) => g.id === groupId)
-        if (!grp) return
-        const memberIds = new Set(grp.cavityIds)
-        const members = scheme.cavities.filter((c) => memberIds.has(c.instanceId) || c.groupId === groupId)
-        if (members.length === 0) return
-
-        pushHistory(p)
-        // 关键：严格针对多孔特征本身的定位原点进行刚性同心旋转，与二维视口 X/Y 坐标系保持绝对同向
-        const centerU = grp.u != null ? grp.u : (members.reduce((acc, c) => acc + c.u, 0) / members.length)
-        const centerV = grp.v != null ? grp.v : (members.reduce((acc, c) => acc + c.v, 0) / members.length)
-        grp.u = centerU
-        grp.v = centerV
-        grp.rotation = (((Math.round((grp.rotation || 0) + deltaAngleDeg) % 360) + 360) % 360)
-
-        const rad = (deltaAngleDeg * Math.PI) / 180
-        const cosA = Math.cos(rad)
-        const sinA = Math.sin(rad)
-
-        for (const c of members) {
-          const du = c.u - centerU
-          const dv = c.v - centerV
-          // 刚性跟随基底旋转 (从 +X 轴向 +Y 轴正角旋转)
-          const newDu = du * cosA - dv * sinA
-          const newDv = du * sinA + dv * cosA
-          c.u = Math.round((centerU + newDu) * 10) / 10
-          c.v = Math.round((centerV + newDv) * 10) / 10
-          c.rotation = (((Math.round((c.rotation || 0) + deltaAngleDeg) % 360) + 360) % 360)
+  addCavities: (projectId, cavities, compound) => {
+    set(produce((state: DesignState) => {
+      const p = state.projects[projectId]
+      if (!p) return
+      const scheme = activeScheme(p.doc)
+      if (!cavities.length) return
+      pushHistory(p)
+      if (compound) {
+        const feature: CompoundCavity = {
+          kind: 'compound', instanceId: compound.id, name: compound.name,
+          libraryId: cavities[0].libraryId, templateId: cavities[0].templateId,
+          cavityType: compound.cavityType, faceId: compound.faceId || cavities[0].faceId,
+          u: compound.u || 0, v: compound.v || 0, rotation: compound.rotation || 0,
+          outline: compound.outline,
+          children: cavities.map(({ faceId: _face, parentId: _parent, ...child }) => {
+            const angle = (compound.rotation || 0) * Math.PI / 180
+            const du = child.u - (compound.u || 0), dv = child.v - (compound.v || 0)
+            return {...child, u: du * Math.cos(angle) + dv * Math.sin(angle), v: -du * Math.sin(angle) + dv * Math.cos(angle), rotation: child.rotation - (compound.rotation || 0), ...(child.azimuth !== undefined ? {azimuth: child.azimuth - (compound.rotation || 0)} : {})}
+          })
         }
-      })
-    )
+        scheme.cavities.push(feature)
+        p.selected = { type: 'compound', id: feature.instanceId }
+      } else {
+        scheme.cavities.push(...cavities.map(({parentId: _parent, ...c}) => ({ ...c, kind: 'single' as const })))
+        p.selected = { type: 'cavity', id: cavities[0].instanceId }
+      }
+    }))
   },
 
-  rebindGroupFace: (projectId, groupId, newFaceId, mode, targetOrigin) => {
-    if (targetOrigin && !Number.isFinite(targetOrigin.u + targetOrigin.v)) return
-    set(
-      produce((state: DesignState) => {
-        const p = state.projects[projectId]
-        if (!p) return
-        const scheme = p.doc.schemes.find((s) => s.id === p.doc.activeSchemeId)
-        if (!scheme || !scheme.groups) return
-        const grp = scheme.groups.find((g) => g.id === groupId)
-        if (!grp || grp.faceId === newFaceId) return
-        const memberIds = new Set(grp.cavityIds)
-        const members = scheme.cavities.filter((c) => memberIds.has(c.instanceId) || c.groupId === groupId)
-        if (members.length === 0) return
-
-        pushHistory(p)
-        const oldFaceId = grp.faceId || members[0].faceId
-        const centerU = grp.u ?? (members.reduce((acc, c) => acc + c.u, 0) / members.length)
-        const centerV = grp.v ?? (members.reduce((acc, c) => acc + c.v, 0) / members.length)
-
-        let targetCenterU = 0
-        let targetCenterV = 0
-
-        if (mode === 'project') {
-          const dims = p.doc.baseBody.dimensions
-          const oldBasis = getBoxFaceBasis(oldFaceId, dims, p.doc.baseBody)
-          const worldCenter = localToWorldPoint(oldBasis, centerU, centerV, 0)
-          const newBasis = getBoxFaceBasis(newFaceId, dims, p.doc.baseBody)
-          const newLocal = worldToLocalPoint(newBasis, worldCenter)
-          targetCenterU = Math.round(newLocal.u * 10) / 10
-          targetCenterV = Math.round(newLocal.v * 10) / 10
-        }
-
-        if (targetOrigin) {
-          targetCenterU=targetOrigin.u
-          targetCenterV=targetOrigin.v
-        }
-        const deltaU = targetCenterU - centerU
-        const deltaV = targetCenterV - centerV
-
-        grp.faceId = newFaceId
-        grp.u = targetCenterU
-        grp.v = targetCenterV
-
-        for (const c of members) {
-          c.faceId = newFaceId
-          c.u = c.u + deltaU
-          c.v = c.v + deltaV
-        }
-      })
-    )
+  updateCavity: (projectId, instanceId, patch) => {
+    set(produce((state: DesignState) => {
+      const p = state.projects[projectId]
+      if (!p) return
+      const scheme = activeScheme(p.doc)
+      if (!rootFeature(scheme, instanceId)) return
+      pushHistory(p)
+      patchPhysicalCavity(scheme, instanceId, patch)
+    }))
   },
 
-  disbandGroup: (projectId, groupId) => {
-    set(
-      produce((state: DesignState) => {
-        const p = state.projects[projectId]
-        if (!p) return
-        const scheme = p.doc.schemes.find((s) => s.id === p.doc.activeSchemeId)
-        if (!scheme || !scheme.groups) return
-        pushHistory(p)
-        scheme.groups = scheme.groups.filter((g) => g.id !== groupId)
-        for (const c of scheme.cavities) {
-          if (c.groupId === groupId) {
-            c.groupId = undefined
-          }
-        }
-        const isDisbandSelected =
-          p.selected &&
-          ('id' in p.selected
-            ? p.selected.id === groupId
-            : p.selected.type === 'features' && p.selected.items.some((it) => it.id === groupId))
-        if (isDisbandSelected) {
-          p.selected = { type: 'base', id: 'base' }
-        }
-      })
-    )
+  updateCavityPosition: (projectId, instanceId, u, v, faceId) => {
+    set(produce((state: DesignState) => {
+      const p = state.projects[projectId]
+      if (!p) return
+      const scheme = activeScheme(p.doc)
+      if (!rootFeature(scheme, instanceId)) return
+      pushHistory(p)
+      patchPhysicalCavity(scheme, instanceId, { u, v, ...(faceId ? {faceId} : {}) })
+    }))
   },
 
-  deleteGroup: (projectId, groupId) => {
-    set(
-      produce((state: DesignState) => {
-        const p = state.projects[projectId]
-        if (!p) return
-        const scheme = p.doc.schemes.find((s) => s.id === p.doc.activeSchemeId)
-        if (!scheme || !scheme.groups) return
-        const targetGroup = scheme.groups.find((g) => g.id === groupId)
-        if (!targetGroup) return
-        pushHistory(p)
-        const memberIds = new Set(targetGroup.cavityIds)
-        // 删除该组包含的所有子孔腔
-        scheme.cavities = scheme.cavities.filter((c) => !memberIds.has(c.instanceId) && c.groupId !== groupId)
-        // 移除该组
-        scheme.groups = scheme.groups.filter((g) => g.id !== groupId)
-
-        const isDeleteSelected =
-          p.selected &&
-          (('id' in p.selected && (p.selected.id === groupId || memberIds.has(p.selected.id))) ||
-            (p.selected.type === 'features' &&
-              p.selected.items.some((it) => it.id === groupId || memberIds.has(it.id))))
-        if (isDeleteSelected) {
-          p.selected = { type: 'base', id: 'base' }
-        }
+  updateCavityPositions: (projectId, updates) => {
+    set(produce((state: DesignState) => {
+      const p = state.projects[projectId]
+      if (!p) return
+      const scheme = activeScheme(p.doc)
+      if (!updates.length) return
+      pushHistory(p)
+      const moved = new Set<string>()
+      const holes = physicalCavities(scheme)
+      updates.forEach(up => {
+        const root = rootFeature(scheme, up.id)
+        const hole = holes.find(c => c.instanceId === up.id)
+        if (!root || !hole || moved.has(root.instanceId)) return
+        moved.add(root.instanceId)
+        root.u += up.u - hole.u; root.v += up.v - hole.v
+        if (up.faceId) root.faceId = up.faceId
       })
-    )
+    }))
   },
 
-  toggleGroupSuppressed: (projectId, groupId) => {
-    set(
-      produce((state: DesignState) => {
-        const p = state.projects[projectId]
-        if (!p) return
-        const scheme = p.doc.schemes.find((s) => s.id === p.doc.activeSchemeId)
-        if (!scheme || !scheme.groups) return
-        const targetGroup = scheme.groups.find((g) => g.id === groupId)
-        if (!targetGroup) return
-        const memberIds = new Set(targetGroup.cavityIds)
-        const memberCavities = scheme.cavities.filter((c) => memberIds.has(c.instanceId) || c.groupId === groupId)
-        if (memberCavities.length === 0) return
-        pushHistory(p)
-        // 若有任意一个未抑制，则全部抑制；若已全部抑制，则全部恢复
-        const anyActive = memberCavities.some((c) => !c.suppressed)
-        for (const c of memberCavities) {
-          c.suppressed = anyActive
-        }
-      })
-    )
+  copySelection: (projectId) => {
+    const p = get().projects[projectId]
+    if (!p) return
+    const roots = selectedRoots(activeScheme(p.doc), getSelectedCavityIds(p.selected, activeScheme(p.doc)))
+    if (roots.length) cavityClipboard = JSON.parse(JSON.stringify(roots))
+  },
+  pasteSelection: (projectId) => {
+    if (!cavityClipboard.length) return
+    set(produce((state: DesignState) => {
+      const p = state.projects[projectId]
+      if (!p) return
+      pushHistory(p)
+      const copies = cavityClipboard.map(f => { const c = cloneFeature(f); c.u += 10; c.v += 10; return c })
+      activeScheme(p.doc).cavities.push(...copies)
+      p.selected = copies.length === 1 ? {type: copies[0].kind === 'compound' ? 'compound' : 'cavity', id: copies[0].instanceId} : { type: 'features', items: copies.map(c => ({type: c.kind === 'compound' ? 'compound' : 'cavity', id: c.instanceId})) }
+    }))
+  },
+  deleteSelection: (projectId) => {
+    set(produce((state: DesignState) => {
+      const p = state.projects[projectId]
+      if (!p) return
+      const scheme = activeScheme(p.doc)
+      const ids = new Set(selectedRoots(scheme, getSelectedCavityIds(p.selected, scheme)).map(f => f.instanceId))
+      if (!ids.size) return
+      pushHistory(p)
+      scheme.cavities = scheme.cavities.filter(f => !ids.has(f.instanceId))
+      p.selected = { type: 'base', id: 'base' }
+    }))
+  },
+  updateSubCavity: (projectId, id, patch) => {
+    set(produce((state: DesignState) => {
+      const p = state.projects[projectId]
+      if (!p) return
+      const root = rootFeature(activeScheme(p.doc), id)
+      if (root?.kind !== 'compound') return
+      const child = root.children.find(c => c.instanceId === id)
+      if (!child) return
+      pushHistory(p)
+      Object.assign(child, patch)
+    }))
   },
 
-  rebindCavityFace: (projectId, cavityId, newFaceId, mode) => {
-    set(
-      produce((state: DesignState) => {
-        const p = state.projects[projectId]
-        if (!p) return
-        const scheme = p.doc.schemes.find((s) => s.id === p.doc.activeSchemeId)
-        if (!scheme) return
-        const cav = scheme.cavities.find((c) => c.instanceId === cavityId)
-        if (!cav || cav.faceId === newFaceId) return
-        pushHistory(p)
-        if (mode === 'center') {
-          cav.faceId = newFaceId
-          cav.u = 0
-          cav.v = 0
-        } else {
-          const dims = p.doc.baseBody.dimensions
-          const oldBasis = getBoxFaceBasis(cav.faceId, dims)
-          const worldPoint = localToWorldPoint(oldBasis, cav.u, cav.v, 0)
-          const newBasis = getBoxFaceBasis(newFaceId, dims)
-          const newLocal = worldToLocalPoint(newBasis, worldPoint)
-          cav.faceId = newFaceId
-          cav.u = Math.round(newLocal.u * 10) / 10
-          cav.v = Math.round(newLocal.v * 10) / 10
-        }
-      })
-    )
+  duplicateCavity: (projectId, instanceId) => {
+    set(produce((state: DesignState) => {
+      const p = state.projects[projectId]
+      if (!p) return
+      const scheme = activeScheme(p.doc)
+      const src = rootFeature(scheme, instanceId)
+      if (!src) return
+      pushHistory(p)
+      const copy = cloneFeature(src)
+      copy.name += ' - 副本'; copy.u += 10; copy.v += 10
+      scheme.cavities.push(copy)
+      p.selected = { type: copy.kind === 'compound' ? 'compound' : 'cavity', id: copy.instanceId }
+    }))
   },
+
+  deleteCavity: (projectId, instanceId) => {
+    set(produce((state: DesignState) => {
+      const p = state.projects[projectId]
+      if (!p) return
+      const scheme = activeScheme(p.doc)
+      const root = rootFeature(scheme, instanceId)
+      if (!root) return
+      pushHistory(p)
+      scheme.cavities = scheme.cavities.filter(f => f.instanceId !== root.instanceId)
+      p.selected = { type: 'base', id: 'base' }
+    }))
+  },
+
+  reorderFeatures: (projectId, _type, orderedIds) => {
+    set(produce((state: DesignState) => {
+      const p = state.projects[projectId]
+      if (!p) return
+      const scheme = activeScheme(p.doc)
+      pushHistory(p)
+      const list = scheme.cavities
+      const rank = new Map(orderedIds.map((id, index) => [id, index]))
+      list.sort((a, b) => (rank.get(a.instanceId) ?? orderedIds.length) - (rank.get(b.instanceId) ?? orderedIds.length))
+    }))
+  },
+
+  reorderChildren: (projectId, parentId, ids) => {
+    set(produce((state: DesignState) => {
+      const p = state.projects[projectId]
+      if (!p) return
+      const root = rootFeature(activeScheme(p.doc), parentId)
+      if (root?.kind !== 'compound') return
+      pushHistory(p)
+      const rank = new Map(ids.map((id, i) => [id, i]))
+      root.children.sort((a, b) => (rank.get(a.instanceId) ?? ids.length) - (rank.get(b.instanceId) ?? ids.length))
+    }))
+  },
+  toggleCavitySuppressed: (projectId, instanceId) => {
+    set(produce((state: DesignState) => {
+      const p = state.projects[projectId]
+      if (!p) return
+      const scheme = activeScheme(p.doc)
+      const root = rootFeature(scheme, instanceId)
+      if (!root) return
+      pushHistory(p)
+      const item = root.kind === 'compound' && root.instanceId !== instanceId ? root.children.find(c => c.instanceId === instanceId)! : root
+      item.suppressed = !item.suppressed
+    }))
+  },
+
+  moveRigidCavities: (projectId, ids, du, dv) => {
+    set(produce((state: DesignState) => {
+      const p = state.projects[projectId]
+      if (!p) return
+      const scheme = activeScheme(p.doc)
+      if (!Number.isFinite(du + dv)) return
+      pushHistory(p)
+      selectedRoots(scheme, ids).forEach(f => { f.u += du; f.v += dv })
+    }))
+  },
+
+  moveCompound: (projectId, parentId, deltaU, deltaV) => {
+    set(produce((state: DesignState) => {
+      const p = state.projects[projectId]
+      if (!p) return
+      const scheme = activeScheme(p.doc)
+      const root = rootFeature(scheme, parentId)
+      if (!root || !Number.isFinite(deltaU + deltaV)) return
+      pushHistory(p)
+      root.u += deltaU; root.v += deltaV
+    }))
+  },
+
+  rotateCompound: (projectId, parentId, deltaAngleDeg, pivot) => {
+    set(produce((state: DesignState) => {
+      const p = state.projects[projectId]
+      if (!p) return
+      const scheme = activeScheme(p.doc)
+      const root = rootFeature(scheme, parentId)
+      if (!root) return
+      pushHistory(p)
+      if (pivot) {
+        const angle = deltaAngleDeg * Math.PI / 180, du = root.u-pivot.u, dv = root.v-pivot.v
+        root.u = pivot.u+du*Math.cos(angle)-dv*Math.sin(angle)
+        root.v = pivot.v+du*Math.sin(angle)+dv*Math.cos(angle)
+      }
+      root.rotation = (root.rotation + deltaAngleDeg + 360) % 360
+    }))
+  },
+
+  rebindCompoundFace: (projectId, parentId, newFaceId, mode, targetOrigin) => {
+    set(produce((state: DesignState) => {
+      const p = state.projects[projectId]
+      if (!p) return
+      const scheme = activeScheme(p.doc)
+      const root = rootFeature(scheme, parentId)
+      if (!root || root.faceId === newFaceId) return
+      pushHistory(p)
+      let origin = { u: 0, v: 0 }
+      if (mode === 'project') {
+        const body = scheme.baseBody
+        const world = localToWorldPoint(getBoxFaceBasis(root.faceId, body.dimensions, body), root.u, root.v, 0)
+        origin = worldToLocalPoint(getBoxFaceBasis(newFaceId, body.dimensions, body), world)
+      }
+      root.faceId = newFaceId; root.u = targetOrigin?.u ?? origin.u; root.v = targetOrigin?.v ?? origin.v
+    }))
+  },
+
+  deleteCompound: (projectId, parentId) => get().deleteCavity(projectId, parentId),
+
+  toggleCompoundSuppressed: (projectId, parentId) => get().toggleCavitySuppressed(projectId, parentId),
+
+  rebindCavityFace: (projectId, cavityId, newFaceId, mode, targetOrigin) => get().rebindCompoundFace(projectId, cavityId, newFaceId, mode, targetOrigin),
 
   applyAlignment: (projectId, cavityIds, type) => {
-    set(
-      produce((state: DesignState) => {
-        const p = state.projects[projectId]
-        if (!p || cavityIds.length < 2) return
-        const scheme = p.doc.schemes.find((s) => s.id === p.doc.activeSchemeId)
-        if (!scheme) return
-
-        interface FeatureUnit {
-          id: string
-          type: 'group' | 'cavity'
-          faceId: string
-          u: number
-          v: number
-          cavities: CavityInstance[]
-          group?: CavityGroup
-        }
-
-        const units: FeatureUnit[] = []
-        const visitedGroupIds = new Set<string>()
-        const visitedCavityIds = new Set<string>()
-
-        for (const cid of cavityIds) {
-          if (visitedCavityIds.has(cid)) continue
-          const cav = scheme.cavities.find((c) => c.instanceId === cid)
-          if (!cav) continue
-
-          const grp = scheme.groups?.find((g) => g.id === cav.groupId || g.cavityIds.includes(cid))
-          if (grp) {
-            if (!visitedGroupIds.has(grp.id)) {
-              visitedGroupIds.add(grp.id)
-              const memberCavs = scheme.cavities.filter((c) => c.groupId === grp.id || grp.cavityIds.includes(c.instanceId))
-              for (const mc of memberCavs) visitedCavityIds.add(mc.instanceId)
-              const meanU = grp.u ?? (memberCavs.reduce((s, c) => s + c.u, 0) / memberCavs.length)
-              const meanV = grp.v ?? (memberCavs.reduce((s, c) => s + c.v, 0) / memberCavs.length)
-              units.push({
-                id: grp.id,
-                type: 'group',
-                faceId: grp.faceId || memberCavs[0]?.faceId,
-                u: meanU,
-                v: meanV,
-                cavities: memberCavs,
-                group: grp
-              })
-            }
-          } else {
-            visitedCavityIds.add(cav.instanceId)
-            units.push({
-              id: cav.instanceId,
-              type: 'cavity',
-              faceId: cav.faceId,
-              u: cav.u,
-              v: cav.v,
-              cavities: [cav]
-            })
-          }
-        }
-
-        if (units.length < 2) return
-        pushHistory(p)
-
-        const faceGroups = new Map<string, FeatureUnit[]>()
-        for (const u of units) {
-          const list = faceGroups.get(u.faceId) || []
-          list.push(u)
-          faceGroups.set(u.faceId, list)
-        }
-
-        for (const [, groupUnits] of faceGroups) {
-          if (groupUnits.length < 2) continue
-          let targetU = 0
-          let targetV = 0
-          switch (type) {
-            case 'left':
-              targetU = Math.min(...groupUnits.map((u) => u.u))
-              for (const u of groupUnits) {
-                const du = targetU - u.u
-                for (const c of u.cavities) c.u = Math.round((c.u + du) * 10) / 10
-                if (u.group && u.group.u != null) u.group.u = Math.round((u.group.u + du) * 10) / 10
-              }
-              break
-            case 'right':
-              targetU = Math.max(...groupUnits.map((u) => u.u))
-              for (const u of groupUnits) {
-                const du = targetU - u.u
-                for (const c of u.cavities) c.u = Math.round((c.u + du) * 10) / 10
-                if (u.group && u.group.u != null) u.group.u = Math.round((u.group.u + du) * 10) / 10
-              }
-              break
-            case 'center-x': {
-              const meanU = groupUnits.reduce((acc, u) => acc + u.u, 0) / groupUnits.length
-              for (const u of groupUnits) {
-                const du = meanU - u.u
-                for (const c of u.cavities) c.u = Math.round((c.u + du) * 10) / 10
-                if (u.group && u.group.u != null) u.group.u = Math.round((u.group.u + du) * 10) / 10
-              }
-              break
-            }
-            case 'bottom':
-              targetV = Math.min(...groupUnits.map((u) => u.v))
-              for (const u of groupUnits) {
-                const dv = targetV - u.v
-                for (const c of u.cavities) c.v = Math.round((c.v + dv) * 10) / 10
-                if (u.group && u.group.v != null) u.group.v = Math.round((u.group.v + dv) * 10) / 10
-              }
-              break
-            case 'top':
-              targetV = Math.max(...groupUnits.map((u) => u.v))
-              for (const u of groupUnits) {
-                const dv = targetV - u.v
-                for (const c of u.cavities) c.v = Math.round((c.v + dv) * 10) / 10
-                if (u.group && u.group.v != null) u.group.v = Math.round((u.group.v + dv) * 10) / 10
-              }
-              break
-            case 'center-y': {
-              const meanV = groupUnits.reduce((acc, u) => acc + u.v, 0) / groupUnits.length
-              for (const u of groupUnits) {
-                const dv = meanV - u.v
-                for (const c of u.cavities) c.v = Math.round((c.v + dv) * 10) / 10
-                if (u.group && u.group.v != null) u.group.v = Math.round((u.group.v + dv) * 10) / 10
-              }
-              break
-            }
-          }
-        }
-      })
-    )
+    set(produce((state: DesignState) => {
+      const p = state.projects[projectId]
+      if (!p) return
+      const scheme = activeScheme(p.doc)
+      const roots = selectedRoots(scheme, cavityIds)
+      if (roots.length < 2) return
+      pushHistory(p)
+      const coordinate = ['left', 'right', 'center-x'].includes(type) ? 'u' : 'v'
+      for (const face of new Set(roots.map(f => f.faceId))) {
+        const items = roots.filter(f => f.faceId === face)
+        const values = items.map(f => f[coordinate])
+        const target = ['left','bottom'].includes(type) ? Math.min(...values) : ['right','top'].includes(type) ? Math.max(...values) : values.reduce((a,b) => a+b,0)/values.length
+        items.forEach(f => { f[coordinate] = target })
+      }
+    }))
   },
 
   applyDistribution: (projectId, cavityIds, axis) => {
-    set(
-      produce((state: DesignState) => {
-        const p = state.projects[projectId]
-        if (!p || cavityIds.length < 3) return
-        const scheme = p.doc.schemes.find((s) => s.id === p.doc.activeSchemeId)
-        if (!scheme) return
-
-        interface FeatureUnit {
-          id: string
-          type: 'group' | 'cavity'
-          faceId: string
-          u: number
-          v: number
-          cavities: CavityInstance[]
-          group?: CavityGroup
-        }
-
-        const units: FeatureUnit[] = []
-        const visitedGroupIds = new Set<string>()
-        const visitedCavityIds = new Set<string>()
-
-        for (const cid of cavityIds) {
-          if (visitedCavityIds.has(cid)) continue
-          const cav = scheme.cavities.find((c) => c.instanceId === cid)
-          if (!cav) continue
-
-          const grp = scheme.groups?.find((g) => g.id === cav.groupId || g.cavityIds.includes(cid))
-          if (grp) {
-            if (!visitedGroupIds.has(grp.id)) {
-              visitedGroupIds.add(grp.id)
-              const memberCavs = scheme.cavities.filter((c) => c.groupId === grp.id || grp.cavityIds.includes(c.instanceId))
-              for (const mc of memberCavs) visitedCavityIds.add(mc.instanceId)
-              const meanU = grp.u ?? (memberCavs.reduce((s, c) => s + c.u, 0) / memberCavs.length)
-              const meanV = grp.v ?? (memberCavs.reduce((s, c) => s + c.v, 0) / memberCavs.length)
-              units.push({
-                id: grp.id,
-                type: 'group',
-                faceId: grp.faceId || memberCavs[0]?.faceId,
-                u: meanU,
-                v: meanV,
-                cavities: memberCavs,
-                group: grp
-              })
-            }
-          } else {
-            visitedCavityIds.add(cav.instanceId)
-            units.push({
-              id: cav.instanceId,
-              type: 'cavity',
-              faceId: cav.faceId,
-              u: cav.u,
-              v: cav.v,
-              cavities: [cav]
-            })
-          }
-        }
-
-        if (units.length < 3) return
-        pushHistory(p)
-
-        const faceGroups = new Map<string, FeatureUnit[]>()
-        for (const u of units) {
-          const list = faceGroups.get(u.faceId) || []
-          list.push(u)
-          faceGroups.set(u.faceId, list)
-        }
-
-        for (const [, groupUnits] of faceGroups) {
-          if (groupUnits.length < 3) continue
-          if (axis === 'horizontal') {
-            groupUnits.sort((a, b) => a.u - b.u)
-            const minU = groupUnits[0].u
-            const maxU = groupUnits[groupUnits.length - 1].u
-            const step = (maxU - minU) / (groupUnits.length - 1)
-            for (let i = 1; i < groupUnits.length - 1; i++) {
-              const targetU = Math.round((minU + i * step) * 10) / 10
-              const du = targetU - groupUnits[i].u
-              for (const c of groupUnits[i].cavities) c.u = Math.round((c.u + du) * 10) / 10
-              const grp = groupUnits[i].group
-              if (grp && grp.u != null) {
-                grp.u = Math.round((grp.u + du) * 10) / 10
-              }
-            }
-          } else {
-            groupUnits.sort((a, b) => a.v - b.v)
-            const minV = groupUnits[0].v
-            const maxV = groupUnits[groupUnits.length - 1].v
-            const step = (maxV - minV) / (groupUnits.length - 1)
-            for (let i = 1; i < groupUnits.length - 1; i++) {
-              const targetV = Math.round((minV + i * step) * 10) / 10
-              const dv = targetV - groupUnits[i].v
-              for (const c of groupUnits[i].cavities) c.v = Math.round((c.v + dv) * 10) / 10
-              const grp = groupUnits[i].group
-              if (grp && grp.v != null) {
-                grp.v = Math.round((grp.v + dv) * 10) / 10
-              }
-            }
-          }
-        }
-      })
-    )
+    set(produce((state: DesignState) => {
+      const p = state.projects[projectId]
+      if (!p) return
+      const scheme = activeScheme(p.doc)
+      const roots = selectedRoots(scheme, cavityIds)
+      if (roots.length < 3) return
+      pushHistory(p)
+      const coordinate = axis === 'horizontal' ? 'u' : 'v'
+      for (const face of new Set(roots.map(f => f.faceId))) {
+        const items = roots.filter(f => f.faceId === face).sort((a,b) => a[coordinate]-b[coordinate])
+        if (items.length < 3) continue
+        const first = items[0][coordinate], last = items[items.length-1][coordinate]
+        items.forEach((f,i) => { f[coordinate] = first + (last-first)*i/(items.length-1) })
+      }
+    }))
   },
 
   replaceCavity: (projectId, instanceId, newTemplate) => {
@@ -1703,7 +1300,7 @@ export const useDesignStore = create<DesignState>((set, get) => ({
         if (!p) return
         const scheme = p.doc.schemes.find((s) => s.id === p.doc.activeSchemeId)
         if (!scheme) return
-        const cav = scheme.cavities.find((c) => c.instanceId === instanceId)
+        const cav = mutableHole(scheme, instanceId)
         if (!cav) return
         pushHistory(p)
         if (newTemplate.templateId) cav.templateId = newTemplate.templateId
@@ -1716,52 +1313,26 @@ export const useDesignStore = create<DesignState>((set, get) => ({
     )
   },
 
-  replaceGroup: (projectId, groupId, newGroupData) => {
-    set(
-      produce((state: DesignState) => {
-        const p = state.projects[projectId]
-        if (!p) return
-        const scheme = p.doc.schemes.find((s) => s.id === p.doc.activeSchemeId)
-        if (!scheme || !scheme.groups) return
-        const group = scheme.groups.find((g) => g.id === groupId)
-        if (!group) return
-        pushHistory(p)
-        // 移除原有的子孔
-        const oldCavityIds = new Set(group.cavityIds)
-        scheme.cavities = scheme.cavities.filter((c) => !oldCavityIds.has(c.instanceId) && c.groupId !== groupId)
-
-        // 创建新子孔
-        const centerU = group.u ?? 0
-        const centerV = group.v ?? 0
-        const faceId = group.faceId || 'F1'
-        const newIds: string[] = []
-
-        newGroupData.cavities.forEach((nc, idx) => {
-          const newId = `cav-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`
-          newIds.push(newId)
-          scheme.cavities.push({
-            instanceId: newId,
-            libraryId: 'std',
-            templateId: nc.templateId || `t-${idx}`,
-            name: nc.name || `${newGroupData.name}_${nc.subHoleName || idx + 1}`,
-            cavityType: nc.cavityType,
-            subHoleName: nc.subHoleName,
-            steps: nc.steps ? JSON.parse(JSON.stringify(nc.steps)) : undefined,
-            ports: nc.ports ? JSON.parse(JSON.stringify(nc.ports)) : undefined,
-            groupId,
-            faceId,
-            u: Math.round((centerU + (nc.offsetU || 0)) * 10) / 10,
-            v: Math.round((centerV + (nc.offsetV || 0)) * 10) / 10,
-            rotation: group.rotation || 0,
-            depthOffset: nc.depthOffset || 0
-          })
-        })
-
-        group.name = newGroupData.name
-        if (newGroupData.cavityType) group.cavityType = newGroupData.cavityType
-        group.cavityIds = newIds
-      })
-    )
+  replaceCompound: (projectId, parentId, newGroupData) => {
+    set(produce((state: DesignState) => {
+      const p = state.projects[projectId]
+      if (!p) return
+      const scheme = activeScheme(p.doc)
+      const root = rootFeature(scheme, parentId)
+      if (root?.kind !== 'compound') return
+      pushHistory(p)
+      root.name = newGroupData.name; root.cavityType = newGroupData.cavityType || root.cavityType
+      root.templateId = newGroupData.templateId || root.templateId
+      root.outline = newGroupData.outline
+      root.outlineMirrored = false
+      root.children = newGroupData.cavities.map((c, i) => ({
+        instanceId: crypto.randomUUID(), libraryId: root.libraryId, templateId: c.templateId || root.templateId,
+        name: c.name || `${root.name}_${i+1}`, subHoleName: c.subHoleName, cavityType: c.cavityType,
+        u: c.offsetU, v: c.offsetV, rotation: c.rotation || 0, tiltAngle: c.tiltAngle, azimuth: c.azimuth, depthOffset: c.depthOffset || 0,
+        steps: c.steps ? JSON.parse(JSON.stringify(c.steps)) : undefined,
+        ports: c.ports ? JSON.parse(JSON.stringify(c.ports)) : undefined
+      }))
+    }))
   },
 
   batchAdjustDepth: (projectId, cavityIds, deltaDepth) => {
@@ -1773,7 +1344,7 @@ export const useDesignStore = create<DesignState>((set, get) => ({
         if (!scheme) return
         pushHistory(p)
         for (const cid of cavityIds) {
-          const cav = scheme.cavities.find((c) => c.instanceId === cid)
+          const cav = mutableHole(scheme, cid)
           if (!cav) continue
           if (cav.steps && cav.steps.length > 0) {
             const lastStep = cav.steps[cav.steps.length - 1]
@@ -1789,38 +1360,19 @@ export const useDesignStore = create<DesignState>((set, get) => ({
   },
 
   alignCavitiesCrossFace: (projectId, cavityIds, axis) => {
-    set(
-      produce((state: DesignState) => {
-        const p = state.projects[projectId]
-        if (!p || cavityIds.length < 2) return
-        const scheme = p.doc.schemes.find((s) => s.id === p.doc.activeSchemeId)
-        if (!scheme) return
-        const dims = p.doc.baseBody.dimensions
-
-        const cavInfos = cavityIds.map((cid) => {
-          const c = scheme.cavities.find((item) => item.instanceId === cid)
-          if (!c) return null
-          const basis = getBoxFaceBasis(c.faceId, dims)
-          const world = localToWorldPoint(basis, c.u, c.v, 0)
-          return { cavity: c, basis, world }
-        }).filter(Boolean) as Array<{ cavity: CavityInstance; basis: any; world: [number, number, number] }>
-
-        if (cavInfos.length < 2) return
-        pushHistory(p)
-
-        const axisIdx = axis === 'x' ? 0 : axis === 'y' ? 1 : 2
-        const targetCoord = cavInfos[0].world[axisIdx]
-
-        for (let i = 1; i < cavInfos.length; i++) {
-          const { cavity, basis, world } = cavInfos[i]
-          const newWorld: [number, number, number] = [...world]
-          newWorld[axisIdx] = targetCoord
-          const newLocal = worldToLocalPoint(basis, newWorld)
-          cavity.u = Math.round(newLocal.u * 10) / 10
-          cavity.v = Math.round(newLocal.v * 10) / 10
-        }
-      })
-    )
+    set(produce((state: DesignState) => {
+      const p = state.projects[projectId]
+      if (!p) return
+      const scheme = activeScheme(p.doc)
+      const roots = selectedRoots(scheme, cavityIds)
+      if (roots.length < 2) return
+      pushHistory(p)
+      const body = scheme.baseBody, index = axis === 'x' ? 0 : axis === 'y' ? 1 : 2
+      const entries = roots.map(root => ({ root, basis: getBoxFaceBasis(root.faceId, body.dimensions, body) }))
+      const worlds = entries.map(e => localToWorldPoint(e.basis, e.root.u, e.root.v, 0))
+      const value = worlds.reduce((n,w) => n+w[index],0)/worlds.length
+      entries.forEach((e,i) => { worlds[i][index] = value; const local = worldToLocalPoint(e.basis, worlds[i]); e.root.u = local.u; e.root.v = local.v })
+    }))
   },
 
   connectTwoCavities: (projectId, cavityIdA, cavityIdB, options) => {
@@ -1830,8 +1382,8 @@ export const useDesignStore = create<DesignState>((set, get) => ({
         if (!p) return
         const scheme = p.doc.schemes.find((s) => s.id === p.doc.activeSchemeId)
         if (!scheme) return
-        const cavA = scheme.cavities.find((c) => c.instanceId === cavityIdA)
-        const cavB = scheme.cavities.find((c) => c.instanceId === cavityIdB)
+        const cavA = mutableHole(scheme, cavityIdA)
+        const cavB = mutableHole(scheme, cavityIdB)
         if (!cavA || !cavB) return
         pushHistory(p)
 
@@ -1855,164 +1407,68 @@ export const useDesignStore = create<DesignState>((set, get) => ({
   },
 
   applyMirror: (projectId, cavityIds, axis, copy) => {
-    set(
-      produce((state: DesignState) => {
-        const p = state.projects[projectId]
-        if (!p || cavityIds.length === 0) return
-        const scheme = p.doc.schemes.find((s) => s.id === p.doc.activeSchemeId)
-        if (!scheme) return
-        const cavs = scheme.cavities.filter((c) => cavityIds.includes(c.instanceId))
-        if (cavs.length === 0) return
-        pushHistory(p)
-
-        const newCavities: CavityInstance[] = []
-        for (const src of cavs) {
-          const targetU = axis === 'u-axis' ? -src.u : src.u
-          const targetV = axis === 'v-axis' ? -src.v : src.v
-
-          if (copy) {
-            const newId = `cav-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
-            const clone: CavityInstance = {
-              ...JSON.parse(JSON.stringify(src)),
-              instanceId: newId,
-              name: `${src.name}_镜像`,
-              u: Math.round(targetU * 10) / 10,
-              v: Math.round(targetV * 10) / 10,
-              groupId: undefined
-            }
-            newCavities.push(clone)
-          } else {
-            src.u = Math.round(targetU * 10) / 10
-            src.v = Math.round(targetV * 10) / 10
-          }
+    set(produce((state: DesignState) => {
+      const p = state.projects[projectId]
+      if (!p) return
+      const scheme = activeScheme(p.doc)
+      const roots = selectedRoots(scheme, cavityIds)
+      if (!roots.length) return
+      pushHistory(p)
+      const results = roots.map(src => {
+        const f = copy ? cloneFeature(src) : src
+        if (axis === 'u-axis') { f.u = -f.u; f.rotation = 180-f.rotation } else { f.v = -f.v; f.rotation = -f.rotation }
+        if (f.kind === 'compound') {
+          f.outlineMirrored = !f.outlineMirrored
+          f.children.forEach(c => { c.v = -c.v; c.rotation = -c.rotation; if(c.azimuth !== undefined) c.azimuth = -c.azimuth })
         }
-
-        if (copy && newCavities.length > 0) {
-          scheme.cavities.push(...newCavities)
-          p.selected = {
-            type: 'cavity',
-            id: newCavities[0].instanceId,
-            extraIds: newCavities.slice(1).map((c) => c.instanceId)
-          }
-        }
+        else if (f.azimuth !== undefined) f.azimuth = axis === 'u-axis' ? 180-f.azimuth : -f.azimuth
+        return f
       })
-    )
+      if (copy) scheme.cavities.push(...results)
+      p.selected = results.length === 1 ? {type: results[0].kind === 'compound' ? 'compound' : 'cavity', id:results[0].instanceId} : { type: 'features', items: results.map(f => ({ type: f.kind === 'compound' ? 'compound' : 'cavity', id: f.instanceId })) }
+    }))
   },
 
   applyLinearPattern: (projectId, sourceCavityIds, config) => {
-    set(
-      produce((state: DesignState) => {
-        const p = state.projects[projectId]
-        if (!p || sourceCavityIds.length === 0) return
-        const scheme = p.doc.schemes.find((s) => s.id === p.doc.activeSchemeId)
-        if (!scheme) return
-        const cavs = scheme.cavities.filter((c) => sourceCavityIds.includes(c.instanceId))
-        if (cavs.length === 0) return
-
-        const getDelta = (axis: '+u' | '-u' | '+v' | '-v', spacing: number) => {
-          switch (axis) {
-            case '+u': return { du: spacing, dv: 0 }
-            case '-u': return { du: -spacing, dv: 0 }
-            case '+v': return { du: 0, dv: spacing }
-            case '-v': return { du: 0, dv: -spacing }
-          }
-        }
-
-        const d1 = getDelta(config.direction1.axis, config.direction1.spacing)
-        const count1 = Math.max(1, config.direction1.count)
-
-        const count2 = config.direction2?.enabled ? Math.max(1, config.direction2.count) : 1
-        const d2 = config.direction2?.enabled
-          ? getDelta(config.direction2.axis, config.direction2.spacing)
-          : { du: 0, dv: 0 }
-
-        pushHistory(p)
-        const newCavities: CavityInstance[] = []
-
-        for (const src of cavs) {
-          for (let i1 = 0; i1 < count1; i1++) {
-            for (let i2 = 0; i2 < count2; i2++) {
-              if (i1 === 0 && i2 === 0) continue
-              const newId = `cav-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
-              const nu = src.u + i1 * d1.du + i2 * d2.du
-              const nv = src.v + i1 * d1.dv + i2 * d2.dv
-              const suffix = count2 > 1 ? `_L_${i1 + 1}_${i2 + 1}` : `_L_${i1 + 1}`
-              const clone: CavityInstance = {
-                ...JSON.parse(JSON.stringify(src)),
-                instanceId: newId,
-                name: `${src.name}${suffix}`,
-                u: Math.round(nu * 10) / 10,
-                v: Math.round(nv * 10) / 10,
-                groupId: undefined
-              }
-              newCavities.push(clone)
-            }
-          }
-        }
-
-        if (newCavities.length > 0) {
-          scheme.cavities.push(...newCavities)
-          p.selected = {
-            type: 'cavity',
-            id: newCavities[0].instanceId,
-            extraIds: newCavities.slice(1).map((c) => c.instanceId)
-          }
-        }
-      })
-    )
+    set(produce((state: DesignState) => {
+      const p = state.projects[projectId]
+      if (!p) return
+      const scheme = activeScheme(p.doc)
+      const roots = selectedRoots(scheme, sourceCavityIds)
+      if (!roots.length) return
+      pushHistory(p)
+      const delta = (axis: string, spacing: number) => ({ u: axis === '+u' ? spacing : axis === '-u' ? -spacing : 0, v: axis === '+v' ? spacing : axis === '-v' ? -spacing : 0 })
+      const d1 = delta(config.direction1.axis, config.direction1.spacing)
+      const d2 = config.direction2?.enabled ? delta(config.direction2.axis, config.direction2.spacing) : { u: 0, v: 0 }
+      const results: CavityFeature[] = []
+      for (let i=0; i<config.direction1.count; i++) for(let j=0; j<(config.direction2?.enabled ? config.direction2.count : 1); j++) {
+        if (!i && !j) continue
+        for (const src of roots) { const f = cloneFeature(src); f.u += i*d1.u+j*d2.u; f.v += i*d1.v+j*d2.v; results.push(f) }
+      }
+      scheme.cavities.push(...results)
+      p.selected = results.length === 1 ? {type: results[0].kind === 'compound' ? 'compound' : 'cavity', id:results[0].instanceId} : { type: 'features', items: results.map(f => ({ type: f.kind === 'compound' ? 'compound' : 'cavity', id: f.instanceId })) }
+    }))
   },
 
   applyCircularPattern: (projectId, sourceCavityIds, config) => {
-    set(
-      produce((state: DesignState) => {
-        const p = state.projects[projectId]
-        if (!p || sourceCavityIds.length === 0) return
-        const scheme = p.doc.schemes.find((s) => s.id === p.doc.activeSchemeId)
-        if (!scheme) return
-        const cavs = scheme.cavities.filter((c) => sourceCavityIds.includes(c.instanceId))
-        if (cavs.length === 0) return
-
-        const count = Math.max(2, config.count)
-        const totalAngle = config.mode === 'full' ? 360 : (config.totalAngle ?? 360)
-        const stepAngleDeg = config.mode === 'full' ? 360 / count : totalAngle / (count - 1)
-        const stepAngleRad = (stepAngleDeg * Math.PI) / 180
-
-        pushHistory(p)
-        const newCavities: CavityInstance[] = []
-
-        for (const src of cavs) {
-          const relU = src.u - config.centerU
-          const relV = src.v - config.centerV
-          const baseAngle = Math.atan2(relV, relU)
-          const radius = Math.sqrt(relU * relU + relV * relV)
-
-          for (let i = 1; i < count; i++) {
-            const angle = baseAngle + i * stepAngleRad
-            const nu = config.centerU + radius * Math.cos(angle)
-            const nv = config.centerV + radius * Math.sin(angle)
-            const newId = `cav-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
-            const clone: CavityInstance = {
-              ...JSON.parse(JSON.stringify(src)),
-              instanceId: newId,
-              name: `${src.name}_C_${i + 1}`,
-              u: Math.round(nu * 10) / 10,
-              v: Math.round(nv * 10) / 10,
-              groupId: undefined
-            }
-            newCavities.push(clone)
-          }
-        }
-
-        if (newCavities.length > 0) {
-          scheme.cavities.push(...newCavities)
-          p.selected = {
-            type: 'cavity',
-            id: newCavities[0].instanceId,
-            extraIds: newCavities.slice(1).map((c) => c.instanceId)
-          }
-        }
-      })
-    )
+    set(produce((state: DesignState) => {
+      const p = state.projects[projectId]
+      if (!p) return
+      const scheme = activeScheme(p.doc)
+      const roots = selectedRoots(scheme, sourceCavityIds)
+      if (!roots.length) return
+      pushHistory(p)
+      const results: CavityFeature[] = []
+      const count = Math.max(2, config.count), angle = (config.mode === 'full' ? 360/count : (config.totalAngle ?? 360)/(count-1))
+      for (let i=1; i<count; i++) for(const src of roots) {
+        const f = cloneFeature(src), radians = i*angle*Math.PI/180, u=src.u-config.centerU, v=src.v-config.centerV
+        f.u = config.centerU+u*Math.cos(radians)-v*Math.sin(radians); f.v = config.centerV+u*Math.sin(radians)+v*Math.cos(radians); f.rotation += i*angle
+        if (f.kind === 'single' && f.azimuth !== undefined) f.azimuth += i*angle
+        results.push(f)
+      }
+      scheme.cavities.push(...results)
+      p.selected = results.length === 1 ? {type: results[0].kind === 'compound' ? 'compound' : 'cavity', id:results[0].instanceId} : { type: 'features', items: results.map(f => ({ type: f.kind === 'compound' ? 'compound' : 'cavity', id: f.instanceId })) }
+    }))
   },
 
   undo: (projectId) => {

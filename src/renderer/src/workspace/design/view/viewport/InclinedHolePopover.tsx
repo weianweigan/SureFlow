@@ -1,3 +1,4 @@
+import { physicalScheme } from '@shared/design/cavityTree'
 import { useLocale as _useLocale } from '@renderer/i18n/useLocale'
 import { t as _t, msg as _msg } from '@shared/i18n'
 import { type FC, useMemo } from 'react'
@@ -33,7 +34,7 @@ export const InclinedHolePopover: FC<InclinedHolePopoverProps> = ({
 
   const activeScheme = useMemo(() => {
     if (!session?.doc) return null
-    return (
+    return physicalScheme(
       session.doc.schemes.find((s) => s.id === session.doc.activeSchemeId) ||
       session.doc.schemes[0]
     )

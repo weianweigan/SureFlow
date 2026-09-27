@@ -28,8 +28,8 @@ export async function readProject(filePath: string): Promise<OpenProjectResult> 
   filePath = await fs.realpath(filePath)
   if (process.platform === 'win32') filePath = filePath.toLowerCase()
   const content = await fs.readFile(filePath, 'utf-8')
-  const json = JSON.parse(content) as SfbProject
-  if (!json.schemaVersion || !json.baseBody || !Array.isArray(json.schemes)) {
+  const json = JSON.parse(content) as SfbProject & { baseBody?: SfbProject['schemes'][number]['baseBody'] }
+  if (!json.schemaVersion || !Array.isArray(json.schemes) || !json.schemes.length || json.schemes.some(s => !s.baseBody && !json.baseBody)) {
     throw new Error(_t("无效的 SureFlow 工程文件格式（缺少必要字段）"))
   }
 
@@ -75,7 +75,7 @@ export async function readProjectMeta(filePath: string): Promise<import('../../s
   try {
     filePath = await fs.realpath(filePath)
     const content = await fs.readFile(filePath, 'utf-8')
-    const json = JSON.parse(content) as SfbProject
+    const json = JSON.parse(content) as SfbProject & { baseBody?: SfbProject['schemes'][number]['baseBody'] }
     return json.meta || null
   } catch {
     return null

@@ -1,3 +1,4 @@
+import { projectBody, physicalScheme } from '@shared/design/cavityTree'
 import { useMemo, useRef, useCallback, useEffect } from 'react'
 import { useThree } from '@react-three/fiber'
 import * as THREE from 'three'
@@ -15,12 +16,12 @@ import { measurePlanar, measureDepth, type ProximityDimension } from '@shared/de
 export function useGeometryReferences(projectId:string) {
   const session=useDesignStore(s=>s.projects[projectId])
   const library=useLibraryStore(s=>s.doc)
-  const scheme=session?.doc.schemes.find(s=>s.id===session.doc.activeSchemeId)
-  const dimensions=session?.doc.baseBody.dimensions
+  const scheme= physicalScheme(session?.doc.schemes.find(s=>s.id===session.doc.activeSchemeId))
+  const dimensions=projectBody(session?.doc)?.dimensions
   return useMemo(()=>buildReferences((scheme?.cavities??[]).map(cavity=>{
     const source=cavity.libraryId===library?.id?library:getLoadedLibs().get(cavity.libraryId)??library
     return {cavity,steps:getCavitySteps(cavity,source),ports:getCavityPorts(cavity,source)}
-  }),scheme?.groups??[],dimensions??[100,100,100]),[scheme?.cavities,scheme?.groups,dimensions,library])
+  }),scheme?.compounds??[],dimensions??[100,100,100]),[scheme?.cavities,scheme?.compounds,dimensions,library])
 }
 export function useGeometrySnap(projectId:string, dimensions:Vec3) {
   const {camera,size}=useThree()
@@ -46,8 +47,8 @@ export function useGeometrySnap(projectId:string, dimensions:Vec3) {
     const excludedSet=new Set(excluded)
     // Group datums belong to the same moving rigid bodies.
     const state=useDesignStore.getState().projects[projectId]
-    const scheme=state?.doc.schemes.find(s=>s.id===state.doc.activeSchemeId)
-    for (const group of scheme?.groups??[]) if (group.cavityIds.some(id=>excludedSet.has(id)) || scheme?.cavities.some(c=>c.groupId===group.id&&excludedSet.has(c.instanceId))) excludedSet.add(group.id)
+    const scheme= physicalScheme(state?.doc.schemes.find(s=>s.id===state.doc.activeSchemeId))
+    for (const group of scheme?.compounds??[]) if (group.cavityIds.some(id=>excludedSet.has(id)) || scheme?.cavities.some(c=>c.parentId===group.id&&excludedSet.has(c.instanceId))) excludedSet.add(group.id)
     return {...useSnapStore.getState().settings,references,excluded:excludedSet,bypass,previous:previous.current,cycle:cycle.current,distance}
   }
   const track=(point:Vec3)=>{
@@ -58,7 +59,7 @@ export function useGeometrySnap(projectId:string, dimensions:Vec3) {
     clear,
     next:()=>{cycle.current++;cycleAnchor.current=lastRaw.current;previous.current=[]},
     planar:(faceId:string,u:number,v:number,dof:'u'|'v'|'uv',excluded:string[]=[],bypass=false,direction?:Vec3)=>{
-      const body = useDesignStore.getState().projects[projectId]?.doc.baseBody
+      const body = projectBody(useDesignStore.getState().projects[projectId]?.doc)
       const basis = getBoxFaceBasis(faceId, dimensions, body)
       track(localToWorldPoint(basis, u, v))
       const input={...options(excluded,bypass),basis,u,v,dof,direction}
@@ -69,7 +70,7 @@ export function useGeometrySnap(projectId:string, dimensions:Vec3) {
       track(mouth.map((x,i)=>x+direction[i]*total) as Vec3)
       const opts=options(excluded,bypass)
       const project=useDesignStore.getState().projects[projectId]
-      const source=project?.doc.schemes.find(s=>s.id===project.doc.activeSchemeId)?.cavities.find(c=>excluded.includes(c.instanceId))
+      const source=physicalScheme(project?.doc.schemes.find(s=>s.id===project.doc.activeSchemeId))?.cavities.find(c=>excluded.includes(c.instanceId))
       if (!opts.crossFace) opts.references=references.filter(r=>r.faceId===source?.faceId)
       const result=snapDepth({...opts,mouth,direction,depth:total,minDepth:upper+2,grid:false})
       if (!result.matches.length && !bypass && opts.grid) result.depth=upper+Math.max(2,Math.round(total-upper))

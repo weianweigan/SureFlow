@@ -1,3 +1,4 @@
+import { projectBody, physicalCavities } from '@shared/design/cavityTree'
 import { describe, expect, it, beforeEach, vi } from 'vitest'
 import {
   createDefaultProject,
@@ -26,11 +27,11 @@ describe('Base Body Features and Inspector Refactoring', () => {
 
   it('initializes default project with 45# steel density 7.85 and box template', () => {
     const project = useDesignStore.getState().projects[projectId]
-    expect(project.doc.baseBody.type).toBe('template')
-    expect(project.doc.baseBody.template).toBe('box')
-    expect(project.doc.baseBody.dimensions).toEqual([120, 100, 80])
+    expect(projectBody(project.doc).type).toBe('template')
+    expect(projectBody(project.doc).template).toBe('box')
+    expect(projectBody(project.doc).dimensions).toEqual([120, 100, 80])
 
-    const mat = resolveMaterialConfig(project.doc.baseBody.material, project.doc.baseBody.materialConfig)
+    const mat = resolveMaterialConfig(projectBody(project.doc).material, projectBody(project.doc).materialConfig)
     expect(mat.density).toBe(7.85)
     expect(mat.presetId).toBe('45-steel')
   })
@@ -41,27 +42,27 @@ describe('Base Body Features and Inspector Refactoring', () => {
     // 切换到 L 型基体
     store.setBaseTemplate(projectId, 'l-shape')
     let p = useDesignStore.getState().projects[projectId]
-    expect(p.doc.baseBody.type).toBe('template')
-    expect(p.doc.baseBody.template).toBe('l-shape')
-    expect(p.doc.baseBody.faces.length).toBe(8)
-    expect(p.doc.baseBody.faces.map(f => f.id)).toEqual(L_SHAPE_FACES.map(f => f.id))
-    expect(p.doc.baseBody.faces.find(f => f.id === 'top-step')?.origin).toBeDefined()
+    expect(projectBody(p.doc).type).toBe('template')
+    expect(projectBody(p.doc).template).toBe('l-shape')
+    expect(projectBody(p.doc).faces.length).toBe(8)
+    expect(projectBody(p.doc).faces.map(f => f.id)).toEqual(L_SHAPE_FACES.map(f => f.id))
+    expect(projectBody(p.doc).faces.find(f => f.id === 'top-step')?.origin).toBeDefined()
 
     // 切换到 T 型基体
     store.setBaseTemplate(projectId, 't-shape')
     p = useDesignStore.getState().projects[projectId]
-    expect(p.doc.baseBody.template).toBe('t-shape')
-    expect(p.doc.baseBody.faces.length).toBe(10)
-    expect(p.doc.baseBody.faces.map(f => f.id)).toEqual(T_SHAPE_FACES.map(f => f.id))
-    expect(p.doc.baseBody.faces.find(f => f.id === 'flange-bottom-left')?.origin).toBeDefined()
+    expect(projectBody(p.doc).template).toBe('t-shape')
+    expect(projectBody(p.doc).faces.length).toBe(10)
+    expect(projectBody(p.doc).faces.map(f => f.id)).toEqual(T_SHAPE_FACES.map(f => f.id))
+    expect(projectBody(p.doc).faces.find(f => f.id === 'flange-bottom-left')?.origin).toBeDefined()
 
     // 切换回长方体
     store.setBaseTemplate(projectId, 'box')
     p = useDesignStore.getState().projects[projectId]
-    expect(p.doc.baseBody.template).toBe('box')
-    expect(p.doc.baseBody.faces.length).toBe(6)
-    expect(p.doc.baseBody.faces.map(f => f.id)).toEqual(STANDARD_BOX_FACES.map(f => f.id))
-    expect(p.doc.baseBody.faces.find(f => f.id === 'top')?.origin).toBeDefined()
+    expect(projectBody(p.doc).template).toBe('box')
+    expect(projectBody(p.doc).faces.length).toBe(6)
+    expect(projectBody(p.doc).faces.map(f => f.id)).toEqual(STANDARD_BOX_FACES.map(f => f.id))
+    expect(projectBody(p.doc).faces.find(f => f.id === 'top')?.origin).toBeDefined()
   })
 
   it('sets base extra parameters for L-shape and T-shape', () => {
@@ -70,7 +71,7 @@ describe('Base Body Features and Inspector Refactoring', () => {
     store.setBaseExtraParams(projectId, { cutX: 45, cutZ: 35 })
 
     const p = useDesignStore.getState().projects[projectId]
-    expect(p.doc.baseBody.extraParams).toEqual({ cutX: 45, cutZ: 35 })
+    expect(projectBody(p.doc).extraParams).toEqual({ cutX: 45, cutZ: 35 })
   })
 
   it('imports external STEP model as base body and switches type to step', () => {
@@ -84,20 +85,20 @@ describe('Base Body Features and Inspector Refactoring', () => {
     })
 
     let p = useDesignStore.getState().projects[projectId]
-    expect(p.doc.baseBody.type).toBe('step')
-    expect(p.doc.baseBody.stepContent).toBe(mockStepText)
-    expect(p.doc.baseBody.stepFileName).toBe('custom_manifold.step')
-    expect(p.doc.baseBody.dimensions).toEqual([150, 120, 90])
+    expect(projectBody(p.doc).type).toBe('step')
+    expect(projectBody(p.doc).stepContent).toBe(mockStepText)
+    expect(projectBody(p.doc).stepFileName).toBe('custom_manifold.step')
+    expect(projectBody(p.doc).dimensions).toEqual([150, 120, 90])
 
     // 切换回普通模板后，再切回 step 保留数据
     store.setBaseTemplate(projectId, 'box')
     p = useDesignStore.getState().projects[projectId]
-    expect(p.doc.baseBody.type).toBe('template')
+    expect(projectBody(p.doc).type).toBe('template')
 
     store.setBaseType(projectId, 'step')
     p = useDesignStore.getState().projects[projectId]
-    expect(p.doc.baseBody.type).toBe('step')
-    expect(p.doc.baseBody.stepFileName).toBe('custom_manifold.step')
+    expect(projectBody(p.doc).type).toBe('step')
+    expect(projectBody(p.doc).stepFileName).toBe('custom_manifold.step')
   })
 
   it('supports density preset auto-fill and user manual override', () => {
@@ -116,14 +117,14 @@ describe('Base Body Features and Inspector Refactoring', () => {
     })
 
     let p = useDesignStore.getState().projects[projectId]
-    expect(p.doc.baseBody.materialConfig?.presetId).toBe('6061-t6')
-    expect(p.doc.baseBody.materialConfig?.density).toBe(2.70)
+    expect(projectBody(p.doc).materialConfig?.presetId).toBe('6061-t6')
+    expect(projectBody(p.doc).materialConfig?.density).toBe(2.70)
 
     // 用户手动修改密度
     store.setBaseMaterialProperty(projectId, 'density', 2.85)
     p = useDesignStore.getState().projects[projectId]
-    expect(p.doc.baseBody.materialConfig?.density).toBe(2.85)
-    expect(p.doc.baseBody.materialConfig?.presetId).toBe('custom') // 更改属性后自动标记为自定义预设
+    expect(projectBody(p.doc).materialConfig?.density).toBe(2.85)
+    expect(projectBody(p.doc).materialConfig?.presetId).toBe('custom') // 更改属性后自动标记为自定义预设
 
     // 切换为 304 不锈钢预设
     const ssPreset = MATERIAL_PRESETS['304-ss']
@@ -138,7 +139,7 @@ describe('Base Body Features and Inspector Refactoring', () => {
     })
 
     p = useDesignStore.getState().projects[projectId]
-    expect(p.doc.baseBody.materialConfig?.density).toBe(7.93)
+    expect(projectBody(p.doc).materialConfig?.density).toBe(7.93)
   })
 
   describe('Face Push/Pull (extrudeFace) and Cavity Follow Behavior', () => {
@@ -147,6 +148,7 @@ describe('Base Body Features and Inspector Refactoring', () => {
       useDesignStore.setState(
         produce((state: any) => {
           state.projects[projectId].doc.schemes[0].cavities.push({
+            kind: 'single',
             instanceId: 'cav-top-1',
             faceId: 'top',
             typeId: 'M10',
@@ -163,16 +165,16 @@ describe('Base Body Features and Inspector Refactoring', () => {
       // 1. cavitiesFollow = true: 顶面增高 10mm (80 -> 90)
       store.extrudeFace(projectId, 'top', 10, true)
       let updatedP = useDesignStore.getState().projects[projectId]
-      expect(updatedP.doc.baseBody.dimensions[2]).toBe(90)
-      let cav = updatedP.doc.schemes[0].cavities.find((c) => c.instanceId === 'cav-top-1')!
+      expect(projectBody(updatedP.doc).dimensions[2]).toBe(90)
+      let cav = physicalCavities(updatedP.doc.schemes[0]).find((c) => c.instanceId === 'cav-top-1')!
       // 孔腔局部深度偏移保持不变，孔随面移动
       expect(cav.depthOffset).toBe(0)
 
       // 2. cavitiesFollow = false: 顶面再增高 10mm (90 -> 100)
       store.extrudeFace(projectId, 'top', 10, false)
       updatedP = useDesignStore.getState().projects[projectId]
-      expect(updatedP.doc.baseBody.dimensions[2]).toBe(100)
-      cav = updatedP.doc.schemes[0].cavities.find((c) => c.instanceId === 'cav-top-1')!
+      expect(projectBody(updatedP.doc).dimensions[2]).toBe(100)
+      cav = physicalCavities(updatedP.doc.schemes[0]).find((c) => c.instanceId === 'cav-top-1')!
       // 孔腔 depthOffset 补偿增加 10，保持世界绝对坐标不变
       expect(cav.depthOffset).toBe(10)
     })
@@ -185,12 +187,12 @@ describe('Base Body Features and Inspector Refactoring', () => {
       // 推拉 top-step (+Z, 5mm): 台阶抬高 5mm，切口 cutZ 应减少 5mm (40 -> 35)
       store.extrudeFace(projectId, 'top-step', 5)
       let p = useDesignStore.getState().projects[projectId]
-      expect(p.doc.baseBody.extraParams?.cutZ).toBe(35)
+      expect(projectBody(p.doc).extraParams?.cutZ).toBe(35)
 
       // 推拉 step-wall (+X, 8mm): 竖面向外推 8mm，台阶宽度 cutX 应减少 8mm (48 -> 40)
       store.extrudeFace(projectId, 'step-wall', 8)
       p = useDesignStore.getState().projects[projectId]
-      expect(p.doc.baseBody.extraParams?.cutX).toBe(40)
+      expect(projectBody(p.doc).extraParams?.cutX).toBe(40)
     })
 
     it('pushes T-shape flange-bottom via paramBinding', () => {
@@ -201,7 +203,7 @@ describe('Base Body Features and Inspector Refactoring', () => {
       // 推拉 flange-bottom-left (法向 -Z, 向外推拉 5mm 即翼缘向下延展 5mm，cutZ 应增加 5mm: 40 -> 45)
       store.extrudeFace(projectId, 'flange-bottom-left', 5)
       const p = useDesignStore.getState().projects[projectId]
-      expect(p.doc.baseBody.extraParams?.cutZ).toBe(45)
+      expect(projectBody(p.doc).extraParams?.cutZ).toBe(45)
     })
   })
 })

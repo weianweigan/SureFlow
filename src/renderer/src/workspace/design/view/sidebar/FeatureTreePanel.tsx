@@ -1,13 +1,16 @@
+import { projectBody, physicalScheme, activeScheme as canonicalScheme } from '@shared/design/cavityTree'
 import { useLocale as _useLocale } from '@renderer/i18n/useLocale'
 import { t as _t, msg as _msg } from '@shared/i18n'
-import { useState, useEffect, useMemo, useRef, type FC } from 'react'
+import { useState, useEffect, useMemo, useRef, type FC, type MouseEvent } from 'react'
 import {
   ChevronDown,
   ChevronRight,
   Eye,
   EyeOff,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
+  Copy,
+  ClipboardPaste
 } from 'lucide-react'
 import {
   useDesignStore,
@@ -17,7 +20,7 @@ import {
 } from '../../model/designStore'
 import { useAnalysisStore } from '../../model/analysisStore'
 import { useLibraryStore } from '../../../library/viewmodel/libraryStore'
-import { getBaseBodyIcon, type BaseFaceDefinition, type CavityInstance, type CavityGroup } from '@shared/design/types'
+import { getBaseBodyIcon, type BaseFaceDefinition, type CavityInstance, type CompoundFrame } from '@shared/design/types'
 import { TYPE_ICONS, assetUrl } from '../../../library/view/typeIcons'
 import type { CavityLibrary } from '@shared/cavity/types'
 import { cn } from '@renderer/lib/utils'
@@ -68,7 +71,7 @@ function getCavityTypeIcon(
 
 /** 获取多孔父组对应类型的 SVG 图标路径 */
 function getGroupTypeIcon(
-  group: CavityGroup,
+  group: CompoundFrame,
   libraryDoc?: CavityLibrary | null
 ): string {
   if (group.cavityType && TYPE_ICONS[group.cavityType]) {
@@ -101,8 +104,10 @@ export const FeatureTreePanel: FC<FeatureTreePanelProps> = ({ projectId }) => {
   const selectFeature = useDesignStore((s) => s.selectFeature)
   const deleteCavity = useDesignStore((s) => s.deleteCavity)
   const toggleCavitySuppressed = useDesignStore((s) => s.toggleCavitySuppressed)
-  const deleteGroup = useDesignStore((s) => s.deleteGroup)
-  const toggleGroupSuppressed = useDesignStore((s) => s.toggleGroupSuppressed)
+  const copySelection = useDesignStore((s) => s.copySelection)
+  const pasteSelection = useDesignStore((s) => s.pasteSelection)
+  const reorderChildren = useDesignStore((s) => s.reorderChildren)
+  const reorderFeatures = useDesignStore((s) => s.reorderFeatures)
 
   const libraryDoc = useLibraryStore((s) => s.doc)
 
@@ -110,7 +115,34 @@ export const FeatureTreePanel: FC<FeatureTreePanelProps> = ({ projectId }) => {
   const [groupsExpanded, setGroupsExpanded] = useState<Record<string, boolean>>({})
   const containerRef = useRef<HTMLDivElement>(null)
 
-  const activeScheme = session?.doc.schemes.find((s) => s.id === session.doc.activeSchemeId) || session?.doc.schemes[0]
+  const [contextFeature, setContextFeature] = useState<{ type: 'cavity' | 'compound'; id: string } | null>(null)
+  const [contextPoint, setContextPoint] = useState<{ x: number; y: number } | null>(null)
+  useEffect(() => {
+    if (!contextPoint) return
+    const close = () => setContextPoint(null)
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
+    window.addEventListener('pointerdown', close)
+    window.addEventListener('keydown', onKey)
+    return () => {window.removeEventListener('pointerdown', close);window.removeEventListener('keydown', onKey)}
+  }, [contextPoint])
+  const draggedFeature = useRef<{ id: string; parentId?: string } | null>(null)
+  const reorderFeature = (targetId: string, parentId?: string) => {
+    const source = draggedFeature.current
+    if (!source || source.parentId !== parentId || source.id === targetId || !session) return
+    const scheme = canonicalScheme(session.doc)
+    const parent = scheme.cavities.find(f => f.instanceId === parentId)
+    const list = parent?.kind === 'compound' ? parent.children : scheme.cavities
+    const ids = list.map(f => f.instanceId)
+    const from = ids.indexOf(source.id), to = ids.indexOf(targetId)
+    if (from < 0 || to < 0) return
+    ids.splice(from, 1); ids.splice(to, 0, source.id)
+    if (parentId) reorderChildren(projectId, parentId, ids)
+    else reorderFeatures(projectId, 'cavity', ids)
+    draggedFeature.current = null
+  }
+  const deleteSelection = () => useDesignStore.getState().deleteSelection(projectId)
+
+  const activeScheme = physicalScheme(session?.doc.schemes.find((s) => s.id === session.doc.activeSchemeId) || session?.doc.schemes[0])
 
   // 3D 拾取或特征树选择后平滑滚动到视野中央（不强制展开多孔父组，保持默认折叠）
   useEffect(() => {
@@ -142,7 +174,7 @@ export const FeatureTreePanel: FC<FeatureTreePanelProps> = ({ projectId }) => {
   }, [session?.selected, activeScheme])
 
   // 处理特征点击（支持 Shift/Ctrl 多选特征）
-  const handleFeatureClick = (feat: { type: 'cavity' | 'group'; id: string }, isMulti: boolean) => {
+  const handleFeatureClick = (feat: { type: 'cavity' | 'compound'; id: string }, isMulti: boolean) => {
     if (useAnalysisStore.getState().isActiveClearanceOpen) {
       if (feat.type === 'cavity') {
         useAnalysisStore.getState().pickClearanceObject({ kind: 'cavity', instanceId: feat.id })
@@ -174,41 +206,12 @@ export const FeatureTreePanel: FC<FeatureTreePanelProps> = ({ projectId }) => {
     }
   }
 
-  // 组织多孔父组与独立单孔列表
-  const { groupedList, standaloneList } = useMemo(() => {
-    if (!activeScheme) return { groupedList: [], standaloneList: [] }
-
-    const groups = activeScheme.groups || []
-    const groupCavityIdSet = new Set<string>()
-
-    const gList = groups
-      .map((grp) => {
-        const memberCavities = activeScheme.cavities.filter(
-          (c) => c.groupId === grp.id || grp.cavityIds.includes(c.instanceId)
-        )
-        for (const c of memberCavities) {
-          groupCavityIdSet.add(c.instanceId)
-        }
-        return {
-          group: grp,
-          cavities: memberCavities
-        }
-      })
-      .filter((item) => item.cavities.length > 0)
-
-    const sList = activeScheme.cavities.filter(
-      (c) => !groupCavityIdSet.has(c.instanceId) && !c.groupId
-    )
-
-    return { groupedList: gList, standaloneList: sList }
-  }, [activeScheme])
-
   if (!session) return null
   const { doc, selected } = session
-  const [sx, sy, sz] = doc.baseBody.dimensions
+  const [sx, sy, sz] = projectBody(doc).dimensions
 
   const isBaseSelected = selected?.type === 'base'
-  const baseIcon = assetUrl(getBaseBodyIcon(doc.baseBody))
+  const baseIcon = assetUrl(getBaseBodyIcon(projectBody(doc)))
 
   const shapeLabels: Record<string, string> = {
     box: _t("长方体"),
@@ -216,11 +219,18 @@ export const FeatureTreePanel: FC<FeatureTreePanelProps> = ({ projectId }) => {
     't-shape': _t("T型基体")
   }
   const shapeName =
-    doc.baseBody.type === 'step'
+    projectBody(doc).type === 'step'
       ? _t("STEP导入")
-      : shapeLabels[doc.baseBody.template || 'box'] || _t("自定义基体")
+      : shapeLabels[projectBody(doc).template || 'box'] || _t("自定义基体")
 
   const totalHoleCount = activeScheme?.cavities.length || 0
+  const openContextMenu = (event: MouseEvent, feat: { type: 'cavity' | 'compound'; id: string }) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (!selectedFeatures.some(f => f.id === feat.id)) selectFeature(projectId, feat)
+    setContextFeature(feat)
+    setContextPoint({ x: event.clientX, y: event.clientY })
+  }
 
   return (
     <div ref={containerRef} className="flex h-full flex-col select-none">
@@ -230,6 +240,10 @@ export const FeatureTreePanel: FC<FeatureTreePanelProps> = ({ projectId }) => {
         <span className="shrink-0 rounded px-1.5 py-0.2 text-[10px] text-foreground/40 font-mono">
           {totalHoleCount}
         </span>
+        <button className="ml-auto p-1" title={_t('展开/折叠全部')} onClick={() => {
+          const next = !baseExpanded || activeScheme?.compounds.some(g => !groupsExpanded[g.id])
+          setBaseExpanded(Boolean(next)); setGroupsExpanded(Object.fromEntries((activeScheme?.compounds || []).map(g => [g.id, Boolean(next)])))
+        }}>{baseExpanded ? <ChevronDown className="size-3"/> : <ChevronRight className="size-3"/>}</button>
       </div>
 
       {/* ── 树状节点列表（直接铺开基体与所有特征节点，不使用孔腔特征外层文件夹） ── */}
@@ -292,7 +306,7 @@ export const FeatureTreePanel: FC<FeatureTreePanelProps> = ({ projectId }) => {
           {/* 基体特征展开：子节点为当前基体的安装面 */}
           {baseExpanded && (
             <div className="space-y-0.5 pl-6 py-0.5">
-              {(doc.baseBody.faces || []).map((face: BaseFaceDefinition) => {
+              {(projectBody(doc).faces || []).map((face: BaseFaceDefinition) => {
                 const isFaceSelected = selected?.type === 'face' && selected.id === face.id
                 return (
                   <div
@@ -319,288 +333,54 @@ export const FeatureTreePanel: FC<FeatureTreePanelProps> = ({ projectId }) => {
           )}
         </div>
 
-        {/* 2. 多孔/组合孔父节点列表（直接平级展示于基体下方） */}
-        {/* 2. 多孔/组合孔父节点列表（直接平级展示于基体下方） */}
-        {groupedList.map(({ group, cavities }) => {
-          const isGrpExpanded = Boolean(groupsExpanded[group.id])
-          const isGrpSelected = selectedFeatures.some((f) => f.type === 'group' && f.id === group.id)
-          const allSuppressed = cavities.length > 0 && cavities.every((c) => c.suppressed)
-          const groupIconUrl = getGroupTypeIcon(group, libraryDoc)
-
-          return (
-            <div key={group.id} className="space-y-0.5">
-              {/* 组合孔父级节点行 */}
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={(e) => handleFeatureClick({ type: 'group', id: group.id }, e.shiftKey || e.ctrlKey || e.metaKey)}
-                className={cn(
-                  'group flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-xs transition-colors',
-                  isGrpSelected
-                    ? 'bg-accent text-accent-foreground font-medium'
-                    : 'text-foreground hover:bg-accent',
-                  allSuppressed && 'opacity-40 italic'
-                )}
-              >
-                <button
-                  type="button"
-                  className="flex size-4 items-center justify-center rounded text-foreground/50 hover:text-foreground"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setGroupsExpanded((prev) => ({ ...prev, [group.id]: !isGrpExpanded }))
-                  }}
-                >
-                  {isGrpExpanded ? (
-                    <ChevronDown className="size-3" />
-                  ) : (
-                    <ChevronRight className="size-3" />
-                  )}
-                </button>
-
-                {/* 组合孔类型对应图标 */}
-                <img
-                  src={groupIconUrl}
-                  alt={group.cavityType || 'group'}
-                  className="size-3.5 shrink-0 object-contain"
-                />
-
-                <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
-                  {group.name}
-                </span>
-
-                {group.faceId && (
-                  <span className="shrink-0 rounded px-1 py-px text-[9px] bg-muted text-foreground/50">
-                    {group.faceId}
-                  </span>
-                )}
-
-                <span className="shrink-0 text-[10px] text-foreground/40 font-mono">
-                  {cavities.length}{_t("孔")}</span>
-
-                {/* 组显隐与删除 */}
-                <div
-                  className="hidden shrink-0 items-center gap-0.5 group-hover:flex"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <button
-                    type="button"
-                    title={allSuppressed ? _t("恢复整组") : _t("抑制整组")}
-                    className="rounded-full p-0.5 text-foreground/40 hover:text-foreground"
-                    onClick={() => toggleGroupSuppressed(projectId, group.id)}
-                  >
-                    {allSuppressed ? (
-                      <EyeOff className="size-3 text-destructive" />
-                    ) : (
-                      <Eye className="size-3" />
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    title={_t("删除整组孔腔")}
-                    className="rounded-full p-0.5 text-foreground/40 hover:bg-destructive/10 hover:text-destructive"
-                    onClick={() => deleteGroup(projectId, group.id)}
-                  >
-                    <Trash2 className="size-3" />
-                  </button>
-                </div>
-              </div>
-
-              {/* 展开各子孔节点 */}
-              {isGrpExpanded && (
-                <div className="space-y-0.5 pl-5 py-0.2">
-                  {cavities.map((cavity, idx) => {
-                    const isSelected = isGrpSelected || selectedCavityIds.includes(cavity.instanceId)
-                    const isSuppressed = !!cavity.suppressed
-                    const displayName =
-                      cavity.subHoleName ||
-                      cavity.name.replace(new RegExp(`^${group.name}\\s*-\\s*`), '')
-                    const childIconUrl = getCavityTypeIcon(cavity, libraryDoc)
-
-                    return (
-                      <div
-                        key={cavity.instanceId}
-                        data-cavity-id={cavity.instanceId}
-                        role="button"
-                        tabIndex={0}
-                        onClick={(e) => {
-                          // 特征树直接选择：选择哪个节点就是哪一个
-                          handleFeatureClick({ type: 'cavity', id: cavity.instanceId }, e.shiftKey || e.ctrlKey || e.metaKey)
-                        }}
-                        onDoubleClick={() => {
-                          window.dispatchEvent(
-                            new CustomEvent('sureflow:focus-cavity', { detail: cavity.instanceId })
-                          )
-                        }}
-                        className={cn(
-                          'group flex h-6.5 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-xs transition-colors',
-                          isSelected
-                            ? 'bg-accent text-accent-foreground font-medium'
-                            : 'text-foreground/80 hover:bg-accent hover:text-foreground',
-                          isSuppressed && 'opacity-40 italic',
-                          cavity.dangling && !isSuppressed && 'bg-amber-50 dark:bg-amber-950/20 border border-amber-300/50'
-                        )}
-                      >
-                        {isSuppressed ? (
-                          <EyeOff className="size-3 text-muted-foreground shrink-0" />
-                        ) : cavity.dangling ? (
-                          <AlertTriangle className="size-3 text-amber-500 shrink-0" />
-                        ) : (
-                          <img
-                            src={childIconUrl}
-                            alt={cavity.cavityType || 'hole'}
-                            className="size-3 shrink-0 object-contain"
-                          />
-                        )}
-
-                        {cavity.portSemantic && !isSuppressed && (
-                          <span
-                            className="size-1.5 rounded-full shrink-0"
-                            style={{ backgroundColor: cavity.portSemantic.color || '#38bdf8' }}
-                            title={_msg`油口: ${cavity.portSemantic.label}`}
-                          />
-                        )}
-
-                        <span className="text-[10px] text-foreground/40 font-mono shrink-0">
-                          {idx + 1}.
-                        </span>
-                        <span className="min-w-0 flex-1 truncate text-[11px]">{displayName}</span>
-                        <span className="shrink-0 text-[9px] font-mono text-muted-foreground/60">
-                          ({cavity.u >= 0 ? `+${cavity.u}` : cavity.u}, {cavity.v >= 0 ? `+${cavity.v}` : cavity.v})
-                        </span>
-
-                        {/* 子孔显隐与删除 */}
-                        <div
-                          className="hidden shrink-0 items-center gap-0.5 group-hover:flex"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <button
-                            type="button"
-                            title={isSuppressed ? _t("取消抑制") : _t("临时抑制")}
-                            className="rounded-full p-0.5 text-foreground/40 hover:text-foreground"
-                            onClick={() => toggleCavitySuppressed(projectId, cavity.instanceId)}
-                          >
-                            {isSuppressed ? (
-                              <EyeOff className="size-2.5 text-destructive" />
-                            ) : (
-                              <Eye className="size-2.5" />
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            title={_t("删除孔腔")}
-                            className="rounded-full p-0.5 text-foreground/40 hover:bg-destructive/10 hover:text-destructive"
-                            onClick={() => deleteCavity(projectId, cavity.instanceId)}
-                          >
-                            <Trash2 className="size-2.5" />
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
+        {canonicalScheme(doc).cavities.map((feature) => {
+          const compound = feature.kind === 'compound'
+          const expanded = Boolean(groupsExpanded[feature.instanceId])
+          const frame = activeScheme?.compounds.find(g => g.id === feature.instanceId)
+          const selectedRoot = selectedFeatures.some(f => f.id === feature.instanceId)
+          const row = (id: string, name: string, u: number, v: number, suppressed: boolean, parentId?: string) => {
+            const hole = activeScheme?.cavities.find(c => c.instanceId === id)
+            const isParent = compound && !parentId
+            const chosen = selectedRoot || selectedCavityIds.includes(id)
+            const type = isParent ? 'compound' as const : 'cavity' as const
+            return <div key={id} data-cavity-id={id} role="button" tabIndex={0} draggable
+              onDragStart={e => { e.stopPropagation(); draggedFeature.current = {id, parentId} }}
+              onDragOver={e => e.preventDefault()}
+              onDrop={e => { e.preventDefault(); e.stopPropagation(); reorderFeature(id, parentId) }}
+              onContextMenu={e => openContextMenu(e, {type, id})}
+              onClick={e => handleFeatureClick({type, id}, e.shiftKey || e.ctrlKey || e.metaKey)}
+              onDoubleClick={() => window.dispatchEvent(new CustomEvent('sureflow:focus-cavity', {detail:id}))}
+              className={cn('group flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-black transition-colors hover:bg-accent', chosen && 'bg-[#8DD7F4]', suppressed && 'opacity-40 italic')}>
+              {isParent && <button onClick={e => {e.stopPropagation();setGroupsExpanded(prev => ({...prev,[id]:!expanded}))}}>{expanded ? <ChevronDown className="size-3"/> : <ChevronRight className="size-3"/>}</button>}
+              <img className="size-3.5" src={isParent && frame ? getGroupTypeIcon(frame, libraryDoc) : hole ? getCavityTypeIcon(hole, libraryDoc) : ''}/>
+              <span className="min-w-0 flex-1 truncate">{name}</span>
+              <span className="text-[9px] font-mono">({Number(u.toFixed(2))}, {Number(v.toFixed(2))})</span>
+              <button title={_t('抑制/恢复')} onClick={e => {e.stopPropagation();toggleCavitySuppressed(projectId,id)}}>{suppressed ? <EyeOff className="size-3"/> : <Eye className="size-3"/>}</button>
+              {!parentId && <button title={_t('删除')} onClick={e => {e.stopPropagation();deleteCavity(projectId,id)}}><Trash2 className="size-3"/></button>}
             </div>
-          )
+          }
+          return <div key={feature.instanceId}>
+            {row(feature.instanceId, feature.name, feature.u, feature.v, Boolean(feature.suppressed))}
+            {compound && expanded && <div className="space-y-0.5 pl-5">{feature.children.map(child => row(child.instanceId,child.subHoleName || child.name,child.u,child.v,Boolean(child.suppressed),feature.instanceId))}</div>}
+          </div>
         })}
-
-        {/* 3. 独立单孔列表（直接平级展示于基体和组合孔下方） */}
-        {standaloneList.map((cavity, index) => {
-          const isSelected = selectedFeatures.some((f) => f.type === 'cavity' && f.id === cavity.instanceId)
-          const isSuppressed = !!cavity.suppressed
-          const cavityIconUrl = getCavityTypeIcon(cavity, libraryDoc)
-
-          return (
-            <div
-              key={cavity.instanceId}
-              data-cavity-id={cavity.instanceId}
-              role="button"
-              tabIndex={0}
-              onClick={(e) => {
-                handleFeatureClick({ type: 'cavity', id: cavity.instanceId }, e.shiftKey || e.ctrlKey || e.metaKey)
-              }}
-              onDoubleClick={() => {
-                window.dispatchEvent(
-                  new CustomEvent('sureflow:focus-cavity', { detail: cavity.instanceId })
-                )
-              }}
-              className={cn(
-                'group flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-xs transition-colors',
-                isSelected
-                  ? 'bg-accent text-accent-foreground font-medium'
-                  : 'text-foreground hover:bg-accent',
-                isSuppressed && 'opacity-40 italic',
-                cavity.dangling && !isSuppressed && 'bg-amber-50 dark:bg-amber-950/20 border border-amber-300/50'
-              )}
-            >
-              {isSuppressed ? (
-                <EyeOff className="size-3.5 text-muted-foreground shrink-0" />
-              ) : cavity.dangling ? (
-                <AlertTriangle className="size-3.5 text-amber-500 shrink-0" />
-              ) : (
-                <img
-                  src={cavityIconUrl}
-                  alt={cavity.cavityType || 'cavity'}
-                  className="size-3.5 shrink-0 object-contain"
-                />
-              )}
-
-              {cavity.portSemantic && !isSuppressed && (
-                <span
-                  className="size-1.5 rounded-full shrink-0"
-                  style={{ backgroundColor: cavity.portSemantic.color || '#38bdf8' }}
-                  title={_msg`油口: ${cavity.portSemantic.label}`}
-                />
-              )}
-
-              <span className="text-[10px] text-foreground/40 font-mono shrink-0">
-                {index + 1}.
-              </span>
-              <span className="min-w-0 flex-1 truncate text-[11px]">{cavity.name}</span>
-
-              <span className="shrink-0 text-[9px] font-mono text-muted-foreground/60">
-                ({cavity.u >= 0 ? `+${cavity.u}` : cavity.u}, {cavity.v >= 0 ? `+${cavity.v}` : cavity.v})
-              </span>
-
-              <span className="shrink-0 rounded px-1 py-px text-[9px] bg-muted text-foreground/50">
-                {cavity.faceId}
-              </span>
-
-              {/* 显隐与删除 */}
-              <div
-                className="hidden shrink-0 items-center gap-0.5 group-hover:flex"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <button
-                  type="button"
-                  title={isSuppressed ? _t("取消抑制") : _t("临时抑制")}
-                  className="rounded-full p-0.5 text-foreground/40 hover:text-foreground"
-                  onClick={() => toggleCavitySuppressed(projectId, cavity.instanceId)}
-                >
-                  {isSuppressed ? (
-                    <EyeOff className="size-3 text-destructive" />
-                  ) : (
-                    <Eye className="size-3" />
-                  )}
-                </button>
-                <button
-                  type="button"
-                  title={_t("删除孔腔")}
-                  className="rounded-full p-0.5 text-foreground/40 hover:bg-destructive/10 hover:text-destructive"
-                  onClick={() => deleteCavity(projectId, cavity.instanceId)}
-                >
-                  <Trash2 className="size-3" />
-                </button>
-              </div>
-            </div>
-          )
-        })}
-
-        {/* 空态 */}
-        {groupedList.length === 0 && standaloneList.length === 0 && (
-          <div className="py-4 text-center text-[11px] text-muted-foreground/60">
-            {_t("暂无孔腔特征，请从右侧「孔腔库」添加")}</div>
-        )}
+        {!canonicalScheme(doc).cavities.length && <div className="py-4 text-center text-muted-foreground">{_t('暂无孔腔特征，请从右侧「孔腔库」添加')}</div>}
       </div>
+      {contextPoint && contextFeature && (
+        <div className="fixed z-[1000] min-w-32 rounded-md border bg-popover p-1 text-popover-foreground shadow-md" style={{ left: contextPoint.x, top: contextPoint.y }} onPointerDown={e => e.stopPropagation()}>
+          <button className="flex w-full items-center rounded px-2 py-1.5 text-xs hover:bg-accent" onClick={() => { deleteSelection(); setContextPoint(null) }}><Trash2 className="mr-2 size-3.5" />{_t('删除')}</button>
+          <button className="flex w-full items-center rounded px-2 py-1.5 text-xs hover:bg-accent" onClick={() => {copySelection(projectId);setContextPoint(null)}}>
+            <Copy className="mr-2 size-3.5" />
+            <span>{_t('复制')}</span>
+            <kbd className="ml-auto pl-6 font-mono text-[10px] text-muted-foreground">Ctrl/Cmd+C</kbd>
+          </button>
+          <button className="flex w-full items-center rounded px-2 py-1.5 text-xs hover:bg-accent" onClick={() => {pasteSelection(projectId);setContextPoint(null)}}>
+            <ClipboardPaste className="mr-2 size-3.5" />
+            <span>{_t('粘贴')}</span>
+            <kbd className="ml-auto pl-6 font-mono text-[10px] text-muted-foreground">Ctrl/Cmd+V</kbd>
+          </button>
+        </div>
+      )}
     </div>
   )
 }

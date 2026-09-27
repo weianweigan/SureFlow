@@ -1,3 +1,4 @@
+import { physicalScheme } from '@shared/design/cavityTree'
 /**
  * 设计检查规则设置模态弹窗 (RuleSettingsModal)
  * 严格对齐 PRD-FR-04-15 §4 与 §5
@@ -28,7 +29,7 @@ export const RuleSettingsModal: React.FC<RuleSettingsModalProps> = ({
 }) => {
   const session = useDesignStore((s) => s.projects[projectId])
   const doc = session?.doc
-  const activeScheme = doc?.schemes.find((s) => s.id === doc.activeSchemeId) || doc?.schemes[0]
+  const activeScheme = physicalScheme(doc?.schemes.find((s) => s.id === doc.activeSchemeId) || doc?.schemes[0])
 
   const currentConfig: CheckConfig = activeScheme?.checkConfig || DEFAULT_CHECK_CONFIG
 

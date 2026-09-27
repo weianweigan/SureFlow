@@ -17,7 +17,6 @@ import {
   AlignRight,
   Link,
   Trash2,
-  FolderPlus,
   ArrowUpDown,
   MoveHorizontal,
   GitCommit
@@ -39,7 +38,6 @@ export const MultiCavityInspector: React.FC<MultiCavityInspectorProps> = ({
   const alignCavitiesCrossFace = useDesignStore((s: DesignState) => s.alignCavitiesCrossFace)
   const connectTwoCavities = useDesignStore((s: DesignState) => s.connectTwoCavities)
   const batchAdjustDepth = useDesignStore((s: DesignState) => s.batchAdjustDepth)
-  const createGroupFromSelection = useDesignStore((s: DesignState) => s.createGroupFromSelection)
   const deleteCavity = useDesignStore((s: DesignState) => s.deleteCavity)
 
   const [listCollapsed, setListCollapsed] = useState(true)
@@ -309,14 +307,6 @@ export const MultiCavityInspector: React.FC<MultiCavityInspectorProps> = ({
 
       {/* 6. 底部批量操作 */}
       <div className="p-3 mt-auto border-t border-border/70 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => createGroupFromSelection(projectId)}
-          className="flex-1 flex items-center justify-center gap-1 rounded border border-border bg-background py-1.5 text-xs text-foreground hover:bg-accent cursor-pointer"
-        >
-          <FolderPlus className="size-3.5 text-primary" />
-          <span>{_t('创建为组合孔')}</span>
-        </button>
         <button
           type="button"
           onClick={handleBatchDelete}

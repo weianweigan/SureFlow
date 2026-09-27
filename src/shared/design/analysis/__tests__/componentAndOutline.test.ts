@@ -108,9 +108,9 @@ describe('2D Outline Checks (OUT-001 & OUT-002)', () => {
     expect(issues[0].ruleId).toBe('OUT-001')
     expect(issues[0].severity).toBe('error')
 
-    // 组合孔内的孔（相同 groupId）不检查二维轮廓重叠
-    const cavGroupA = { ...cav1, groupId: 'group-1' }
-    const cavGroupB = { ...cav2, groupId: 'group-1' }
+    // 组合孔内的孔（相同 parentId）不检查二维轮廓重叠
+    const cavGroupA = { ...cav1, parentId: 'group-1' }
+    const cavGroupB = { ...cav2, parentId: 'group-1' }
     const gGroupA = buildAnalyzedCavityGeometry(cavGroupA, [100, 100, 100])
     const gGroupB = buildAnalyzedCavityGeometry(cavGroupB, [100, 100, 100])
     const groupIssues = evaluateOutlineChecks([gGroupA, gGroupB], DEFAULT_CHECK_CONFIG, dummyStamp)

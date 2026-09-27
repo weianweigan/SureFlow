@@ -1,3 +1,4 @@
+import { projectBody, physicalScheme } from '@shared/design/cavityTree'
 /**
  * CAD 外部软件（SolidWorks 等）与 SureFlow 协同集成服务
  * 提供：
@@ -143,7 +144,7 @@ export async function exportStepToCad(
 
     if (params.includeCavities !== false) {
       // 包含所有孔腔的完整实体切削导出
-      const activeScheme = doc.schemes.find((s) => s.id === doc.activeSchemeId) || doc.schemes[0]
+      const activeScheme = physicalScheme(doc.schemes.find((s) => s.id === doc.activeSchemeId) || doc.schemes[0])
       const cavities = activeScheme?.cavities.filter((c) => !c.suppressed) || []
       const libraryDoc = useLibraryStore.getState().doc
 
@@ -151,7 +152,7 @@ export async function exportStepToCad(
         ...cav,
         steps: cav.steps && cav.steps.length > 0 ? cav.steps : getCavitySteps(cav, libraryDoc)
       }))
-      const channelTopology = solveChannelTopology(cavitiesWithSteps, doc.baseBody.dimensions, activeScheme?.channelConfigs)
+      const channelTopology = solveChannelTopology(cavitiesWithSteps, projectBody(doc).dimensions, activeScheme?.channelConfigs)
       const channelList = channelTopology.channels.map((ch) => ({
         id: ch.id,
         name: ch.name,
@@ -161,7 +162,7 @@ export async function exportStepToCad(
       }))
 
       const cavitiesInput = cavitiesWithSteps.map((cav, idx) => {
-        const basis = getBoxFaceBasis(cav.faceId, doc.baseBody.dimensions, doc.baseBody)
+        const basis = getBoxFaceBasis(cav.faceId, projectBody(doc).dimensions, projectBody(doc))
         const worldMatrix = Array.from(
           getCavityWorldMatrix(
             basis,
@@ -199,10 +200,7 @@ export async function exportStepToCad(
         }
       })
 
-      const baseTemplate: 'box' | 'l-shape' | 't-shape' =
-        doc.baseBody.template === 'l-shape' || doc.baseBody.template === 't-shape'
-          ? doc.baseBody.template
-          : 'box'
+      const baseTemplate = projectBody(doc).template || 'box'
 
       stepContent = await cadBridge.exportStep({
         exportConfig: {
@@ -215,24 +213,21 @@ export async function exportStepToCad(
           stableTopology: true
         },
         baseBody: {
-          type: doc.baseBody.type,
+          type: projectBody(doc).type,
           template: baseTemplate,
-          dimensions: doc.baseBody.dimensions,
-          stepContent: doc.baseBody.stepContent,
-          extraParams: doc.baseBody.extraParams
+          dimensions: projectBody(doc).dimensions,
+          stepContent: projectBody(doc).type === 'step' ? projectBody(doc).stepContent : undefined,
+          extraParams: projectBody(doc).extraParams
         },
         cavities: cavitiesInput,
         channels: channelList
       })
     } else {
       // 仅导出基体
-      if (doc.baseBody.type === 'step' && doc.baseBody.stepContent) {
-        stepContent = doc.baseBody.stepContent
+      if (projectBody(doc).type === 'step' && projectBody(doc).stepContent) {
+        stepContent = projectBody(doc).stepContent!
       } else {
-        const baseTemplate: 'box' | 'l-shape' | 't-shape' =
-          doc.baseBody.template === 'l-shape' || doc.baseBody.template === 't-shape'
-            ? doc.baseBody.template
-            : 'box'
+        const baseTemplate = projectBody(doc).template || 'box'
 
         stepContent = await cadBridge.exportStep({
           exportConfig: {
@@ -245,11 +240,11 @@ export async function exportStepToCad(
             stableTopology: true
           },
           baseBody: {
-            type: doc.baseBody.type,
+            type: projectBody(doc).type,
             template: baseTemplate,
-            dimensions: doc.baseBody.dimensions,
-            stepContent: doc.baseBody.stepContent,
-            extraParams: doc.baseBody.extraParams
+            dimensions: projectBody(doc).dimensions,
+            stepContent: projectBody(doc).type === 'step' ? projectBody(doc).stepContent : undefined,
+            extraParams: projectBody(doc).extraParams
           },
           cavities: []
         })
@@ -312,7 +307,7 @@ export async function saveAndSyncToCad(projectId: string): Promise<boolean> {
   }
   const stepBase64 = btoa(stepBin)
 
-  const activeScheme = session.doc.schemes.find((s) => s.id === session.doc.activeSchemeId) || session.doc.schemes[0]
+  const activeScheme = physicalScheme(session.doc.schemes.find((s) => s.id === session.doc.activeSchemeId) || session.doc.schemes[0])
 
   const res = await window.cadBridgeApi.pushSaveToCad(docGuid, {
     docGuid,
@@ -324,7 +319,7 @@ export async function saveAndSyncToCad(projectId: string): Promise<boolean> {
     statistics: {
       cavityCount: activeScheme?.cavities?.length || 0,
       channelCount: activeScheme?.channelConfigs ? Object.keys(activeScheme.channelConfigs).length : 0,
-      blockDimensions: session.doc.baseBody.dimensions
+      blockDimensions: projectBody(session.doc).dimensions
     }
   })
 

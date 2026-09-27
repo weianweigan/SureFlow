@@ -1,12 +1,12 @@
 import { useLocale as _useLocale } from '@renderer/i18n/useLocale'
 import { useMemo, type FC } from 'react'
 import * as THREE from 'three'
-import type { CavityGroup, CavityInstance } from '@shared/design/types'
+import type { CompoundFrame, CavityInstance } from '@shared/design/types'
 import { getBoxFaceBasis, getCavityWorldMatrix } from '@shared/design/faceMath'
 import { buildOutlineGeometry } from '../../geometry/outlineBuilder'
 
 interface GroupOutlineGizmoProps {
-  groups?: CavityGroup[]
+  groups?: CompoundFrame[]
   cavities?: CavityInstance[]
   dimensions: [number, number, number]
   selectedCavityId?: string | null
@@ -32,7 +32,7 @@ function SingleGroupOutline({
   isSelected,
   isColliding
 }: {
-  group: CavityGroup
+  group: CompoundFrame
   cavities?: CavityInstance[]
   dimensions: [number, number, number]
   isSelected: boolean
@@ -41,7 +41,7 @@ function SingleGroupOutline({
   _useLocale()
   // 获取该组内的所有成员孔腔
   const memberCavities = useMemo(() => {
-    return cavities.filter((c) => c.groupId === group.id || group.cavityIds.includes(c.instanceId))
+    return cavities.filter((c) => c.parentId === group.id || group.cavityIds.includes(c.instanceId))
   }, [cavities, group.id, group.cavityIds])
 
   // 计算该组的有效中心位置 (U, V) 与宿主面
@@ -74,11 +74,11 @@ function SingleGroupOutline({
   // 轮廓几何体生成
   const outlineGeoms = useMemo(() => {
     if (group.outline) {
-      const built = buildOutlineGeometry(group.outline)
+      const built = buildOutlineGeometry(group.outline, 'mm', Boolean(group.outlineMirrored))
       if (built) return built
     }
 
-    // 普通成组无预设 outline 时，严格根据组内所有孔腔在表面上的几何极值生成自适应最小外接包围矩形框
+    // 没有预设轮廓时，在父孔局部坐标系中计算子孔的包围框
     if (memberCavities.length > 0) {
       let minRelU = Infinity
       let maxRelU = -Infinity
@@ -86,8 +86,10 @@ function SingleGroupOutline({
       let maxRelV = -Infinity
 
       for (const c of memberCavities) {
-        const relU = c.u - effectiveU
-        const relV = c.v - effectiveV
+        const angle = (group.rotation || 0) * Math.PI / 180
+        const du = c.u - effectiveU, dv = c.v - effectiveV
+        const relU = du * Math.cos(angle) + dv * Math.sin(angle)
+        const relV = -du * Math.sin(angle) + dv * Math.cos(angle)
         const r = 5.0 // 估算孔口半径
         minRelU = Math.min(minRelU, relU - r)
         maxRelU = Math.max(maxRelU, relU + r)
@@ -142,7 +144,7 @@ function SingleGroupOutline({
       lineGeometry: new THREE.BufferGeometry().setFromPoints(pts),
       fillGeometry: null
     }
-  }, [group.outline, memberCavities, effectiveU, effectiveV])
+  }, [group.outline, group.outlineMirrored, group.rotation, memberCavities, effectiveU, effectiveV])
 
   if (!basis || !outlineGeoms) return null
 
@@ -205,7 +207,7 @@ export const GroupOutlineGizmo: FC<GroupOutlineGizmoProps> = ({
     if (!groups || groups.length < 2) return new Set<string>()
 
     const set = new Set<string>()
-    const boxes = groups.map((g) => {
+    const boxes = groups.filter(g => !g.suppressed).map((g) => {
       const u = g.u ?? 0
       const v = g.v ?? 0
       const r = 25
@@ -237,14 +239,14 @@ export const GroupOutlineGizmo: FC<GroupOutlineGizmoProps> = ({
 
   return (
     <group>
-      {groups.map((grp) => {
+      {groups.filter(g => !g.suppressed).map((grp) => {
         const isSelected = Boolean(
-          cavities.some(c => selectedCavityIds.includes(c.instanceId) && (c.groupId === grp.id || grp.cavityIds.includes(c.instanceId))) ||
+          cavities.some(c => selectedCavityIds.includes(c.instanceId) && (c.parentId === grp.id || grp.cavityIds.includes(c.instanceId))) ||
           (selectedGroupId && grp.id === selectedGroupId) ||
             (selectedCavityId &&
               (grp.id === selectedCavityId ||
                 grp.cavityIds.includes(selectedCavityId) ||
-                cavities.some((c) => c.instanceId === selectedCavityId && c.groupId === grp.id)))
+                cavities.some((c) => c.instanceId === selectedCavityId && c.parentId === grp.id)))
         )
         const isColliding = collidingGroupIds.has(grp.id)
         return (

@@ -1,3 +1,4 @@
+import { projectBody, physicalScheme } from '@shared/design/cavityTree'
 /**
  * 3D 视口检查证据与主动间隙标注叠加层 (AnalysisEvidenceOverlay)
  * 严格对齐 PRD-FR-04-15 §10 (FR-04-15-064) 与 §9 (FR-04-15-063)
@@ -384,7 +385,7 @@ export const AnalysisEvidenceOverlay: React.FC<AnalysisEvidenceOverlayProps> = (
 }) => {
   const session = useDesignStore((s) => s.projects[projectId])
   const doc = session?.doc
-  const activeScheme = doc?.schemes.find((s) => s.id === doc.activeSchemeId) || doc?.schemes[0]
+  const activeScheme = physicalScheme(doc?.schemes.find((s) => s.id === doc.activeSchemeId) || doc?.schemes[0])
   const schemeId = activeScheme?.id || 'default'
 
   const schemeData = useAnalysisStore((s) => s.resultsByScheme[schemeId])
@@ -400,7 +401,7 @@ export const AnalysisEvidenceOverlay: React.FC<AnalysisEvidenceOverlayProps> = (
     return schemeData.issues.find((i) => i.id === selectedIssueId) || null
   }, [selectedIssueId, schemeData])
 
-  const dimensions = doc?.baseBody?.dimensions || [100, 100, 100]
+  const dimensions = projectBody(doc)?.dimensions || [100, 100, 100]
   const center: [number, number, number] = useMemo(
     () => [dimensions[0] / 2, dimensions[1] / 2, dimensions[2] / 2],
     [dimensions]
@@ -408,12 +409,12 @@ export const AnalysisEvidenceOverlay: React.FC<AnalysisEvidenceOverlayProps> = (
 
   // 实体名称映射字典
   const allFaces: BaseFaceDefinition[] = useMemo(() => {
-    if (!doc?.baseBody) return []
+    if (!projectBody(doc)) return []
     return (
-      doc.baseBody.faces ||
-      getFacesForTemplate(doc.baseBody.template, doc.baseBody.dimensions, doc.baseBody.extraParams)
+      projectBody(doc).faces ||
+      getFacesForTemplate(projectBody(doc).template, projectBody(doc).dimensions, projectBody(doc).extraParams)
     )
-  }, [doc?.baseBody])
+  }, [projectBody(doc)])
 
   const getEntityName = (ref: any): string => {
     if (!ref) return ''

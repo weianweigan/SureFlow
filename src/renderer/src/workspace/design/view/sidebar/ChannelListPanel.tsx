@@ -1,3 +1,4 @@
+import { physicalScheme } from '@shared/design/cavityTree'
 import { useLocale as _useLocale } from '@renderer/i18n/useLocale'
 import { t as _t, msg as _msg } from '@shared/i18n'
 import { useState, useMemo, type FC, type MouseEvent } from 'react'
@@ -80,7 +81,7 @@ export const ChannelListPanel: FC<ChannelListPanelProps> = ({
 
   const libraryDoc = useLibraryStore((s) => s.doc)
 
-  const activeScheme = session?.doc.schemes.find((s) => s.id === session.doc.activeSchemeId) || session?.doc.schemes[0]
+  const activeScheme = physicalScheme(session?.doc.schemes.find((s) => s.id === session.doc.activeSchemeId) || session?.doc.schemes[0])
 
   // 展开状态映射
   const [expandedChannels, setExpandedChannels] = useState<Record<string, boolean>>({})

@@ -25,4 +25,17 @@ describe('localization', () => {
     expect(translateMessage('子孔「设置」引用缺少模板 id')).toBe('Sub-hole “设置” has no referenced template ID')
     expect(translateMessage('第 2 段直径必须 > 0')).toBe('Step 2: diameter must be positive')
   })
+  it('translates connector center labels and dynamic messages', () => {
+    setLocale('en-US')
+    expect(t('CAD 协同连接器')).toBe('CAD Co-Design Connector')
+    expect(t('连接中心')).toBe('Connector Center')
+    expect(t('SolidWorks 协同连接器')).toBe('SolidWorks Connector')
+    expect(msg`已检测到 ${2} 款`).toBe('Detected (2)')
+    expect(msg`正在下载并静默安装 ${t('SolidWorks 协同连接器')}...`).toBe(
+      'Downloading and silently installing SolidWorks Connector...'
+    )
+    expect(t('安装')).toBe('Install')
+    expect(t('重新安装')).toBe('Reinstall')
+    expect(t('下载')).toBe('Download')
+  })
 })

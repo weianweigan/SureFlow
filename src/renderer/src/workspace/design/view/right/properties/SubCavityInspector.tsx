@@ -1,3 +1,4 @@
+import { activeScheme, rootFeature } from '@shared/design/cavityTree'
 import { useLocale as _useLocale } from '@renderer/i18n/useLocale'
 import { t as _t } from '@shared/i18n'
 import React, { useState, useMemo } from 'react'
@@ -12,15 +13,15 @@ import { useDesignStore, type DesignState } from '../../../model/designStore'
 import { useLibraryStore, type LibraryState } from '../../../../library/viewmodel/libraryStore'
 import { getCavitySteps } from '../../../geometry/cavityProfileBuilder'
 import { TYPE_REGISTRY } from '@shared/cavity/cavityTypeRegistry'
-import type { CavityInstance, CavityGroup } from '@shared/design/types'
+import type { CavityInstance, CompoundFrame } from '@shared/design/types'
 import type { CavityTemplate, Step } from '@shared/cavity/types'
-import { ArrowLeft, Lock, ArrowRight } from 'lucide-react'
+import { ArrowLeft, ArrowRight } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 
 interface SubCavityInspectorProps {
   projectId: string
   cavity: CavityInstance
-  parentGroup: CavityGroup
+  parentGroup: CompoundFrame
 }
 
 const PORT_SEMANTIC_OPTIONS = [
@@ -52,7 +53,7 @@ export const SubCavityInspector: React.FC<SubCavityInspectorProps> = ({
   _useLocale()
   const session = useDesignStore((s: DesignState) => s.projects[projectId])
   const updateCavity = useDesignStore((s: DesignState) => s.updateCavity)
-  const moveGroup = useDesignStore((s: DesignState) => s.moveGroup)
+  const updateSubCavity = useDesignStore((s: DesignState) => s.updateSubCavity)
   const selectFeature = useDesignStore((s: DesignState) => s.selectFeature)
   const libraryDoc = useLibraryStore((s: LibraryState) => s.doc)
 
@@ -61,11 +62,8 @@ export const SubCavityInspector: React.FC<SubCavityInspectorProps> = ({
 
   if (!session) return null
 
-  // 相对组原点的偏移
-  const groupU = parentGroup.u ?? 0
-  const groupV = parentGroup.v ?? 0
-  const relativeU = Math.round((cavity.u - groupU) * 10) / 10
-  const relativeV = Math.round((cavity.v - groupV) * 10) / 10
+  const root = rootFeature(activeScheme(session.doc), cavity.instanceId)
+  const child = root?.kind === 'compound' ? root.children.find(c => c.instanceId === cavity.instanceId) : undefined
 
   // 阶梯数据
   const cavitySteps = useMemo<Step[]>(() => {
@@ -112,7 +110,7 @@ export const SubCavityInspector: React.FC<SubCavityInspectorProps> = ({
       <div className="flex h-9 items-center gap-1.5 border-b border-border/70 px-3 bg-muted/40">
         <button
           type="button"
-          onClick={() => selectFeature(projectId, { type: 'group', id: parentGroup.id })}
+          onClick={() => selectFeature(projectId, { type: 'compound', id: parentGroup.id })}
           className="flex items-center gap-1 text-xs text-primary font-medium hover:underline cursor-pointer"
         >
           <ArrowLeft className="size-3.5" />
@@ -162,53 +160,13 @@ export const SubCavityInspector: React.FC<SubCavityInspectorProps> = ({
         </PropertyRow>
       </FormSectionWrapper>
 
-      {/* 3. 组合定位与只读提示 */}
-      <FormSectionWrapper
-        title={_t('组内相对坐标 (只读)')}
-        action={
-          <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
-            <Lock className="size-3 text-amber-500" />
-            <span>{_t('位置已锁定在组合孔中')}</span>
-          </div>
-        }
-      >
-        <PropertyRow label={_t('相对偏移 ΔU')} unit="mm">
-          <span className="font-mono text-xs text-muted-foreground">{relativeU} mm</span>
-        </PropertyRow>
-        <PropertyRow label={_t('相对偏移 ΔV')} unit="mm">
-          <span className="font-mono text-xs text-muted-foreground">{relativeV} mm</span>
-        </PropertyRow>
-        <div className="mt-1 rounded bg-muted/40 p-2 text-[10px] text-muted-foreground space-y-1">
-          <div>
-            {_t('提示：如需调整子孔位置，请修改绝对坐标，将驱动整组刚体平移：')}
-          </div>
-          <div className="grid grid-cols-2 gap-2 pt-1">
-            <div>
-              <span className="text-foreground/70">U: </span>
-              <NumberInput
-                value={cavity.u}
-                step={1}
-                unit="mm"
-                onChange={(val) => {
-                  const du = val - cavity.u
-                  moveGroup(projectId, parentGroup.id, du, 0)
-                }}
-              />
-            </div>
-            <div>
-              <span className="text-foreground/70">V: </span>
-              <NumberInput
-                value={cavity.v}
-                step={1}
-                unit="mm"
-                onChange={(val) => {
-                  const dv = val - cavity.v
-                  moveGroup(projectId, parentGroup.id, 0, dv)
-                }}
-              />
-            </div>
-          </div>
-        </div>
+      <FormSectionWrapper title={_t('子孔相对位置')}>
+        <PropertyRow label="U" unit="mm"><NumberInput value={child?.u ?? 0} onChange={u => updateSubCavity(projectId, cavity.instanceId, {u})} /></PropertyRow>
+        <PropertyRow label="V" unit="mm"><NumberInput value={child?.v ?? 0} onChange={v => updateSubCavity(projectId, cavity.instanceId, {v})} /></PropertyRow>
+        <PropertyRow label={_t('相对旋转')} unit="°"><NumberInput value={child?.rotation ?? 0} onChange={rotation => updateSubCavity(projectId, cavity.instanceId, {rotation})} /></PropertyRow>
+        <PropertyRow label={_t('倾斜角')} unit="°"><NumberInput value={child?.tiltAngle ?? 0} onChange={tiltAngle => updateSubCavity(projectId, cavity.instanceId, {tiltAngle})} /></PropertyRow>
+        <PropertyRow label={_t('相对方位角')} unit="°"><NumberInput value={child?.azimuth ?? child?.rotation ?? 0} onChange={azimuth => updateSubCavity(projectId, cavity.instanceId, {azimuth})} /></PropertyRow>
+        <PropertyRow label={_t('抑制')}><input type="checkbox" checked={Boolean(child?.suppressed)} onChange={e => updateSubCavity(projectId, cavity.instanceId, {suppressed:e.target.checked})} /></PropertyRow>
       </FormSectionWrapper>
 
       {/* 4. 底孔加深微调 */}

@@ -1,10 +1,10 @@
 import { cavityAxis, profileBands, portRegions, add, mul, type Vec3, type PortRegion } from '@shared/design/cavityGeometry'
 import { getBoxFaceBasis, localToWorldPoint } from '@shared/design/faceMath'
-import type { CavityInstance, CavityGroup } from '@shared/design/types'
+import type { CavityInstance, CompoundFrame } from '@shared/design/types'
 import type { Step, Port } from '@shared/cavity/types'
 import type { SnapReference } from '@shared/design/snapping/solver'
 export interface PortVisual extends PortRegion { id:string; ownerId:string; label:string; mouth:Vec3; direction:Vec3 }
-export function buildReferences(cavities: { cavity:CavityInstance; steps:Step[]; ports:Port[] }[], groups:CavityGroup[], dimensions:Vec3) {
+export function buildReferences(cavities: { cavity:CavityInstance; steps:Step[]; ports:Port[] }[], groups:CompoundFrame[], dimensions:Vec3) {
   const references:SnapReference[]=[], ports:PortVisual[]=[]
   for (const {cavity,steps,ports:sourcePorts} of cavities) {
     if (cavity.suppressed || cavity.dangling) continue
@@ -50,7 +50,7 @@ export function buildReferences(cavities: { cavity:CavityInstance; steps:Step[];
     }
   }
   for (const group of groups) {
-    if (!group.faceId || group.u===undefined || group.v===undefined) continue
+    if (group.suppressed || !group.faceId || group.u===undefined || group.v===undefined) continue
     references.push({id:`group:${group.id}:origin`,ownerId:group.id,faceId:group.faceId,label:`${group.name} 原点`,kind:'point',point:localToWorldPoint(getBoxFaceBasis(group.faceId,dimensions),group.u,group.v)})
   }
   for (const faceId of ['top','bottom','front','back','left','right']) {

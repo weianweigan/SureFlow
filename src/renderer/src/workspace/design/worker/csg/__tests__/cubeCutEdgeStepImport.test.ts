@@ -1,3 +1,4 @@
+import { projectBody } from '@shared/design/cavityTree'
 import { describe, it, expect, beforeAll } from 'vitest'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -242,7 +243,7 @@ describe('cube-cut-edge.step Import & CSG Pipeline Integrity Tests', () => {
       faces: []
     })
 
-    const body = useDesignStore.getState().projects[testProjectId]?.doc.baseBody
+    const body = projectBody(useDesignStore.getState().projects[testProjectId]?.doc)
     expect(body?.stepFileName).toBe('custom_valve.step')
     expect(body?.stepFilePath).toBe(testFilePath)
 
@@ -295,7 +296,7 @@ describe('cube-cut-edge.step Import & CSG Pipeline Integrity Tests', () => {
       faces: []
     })
 
-    const body = useDesignStore.getState().projects[testProjectId]?.doc.baseBody
+    const body = projectBody(useDesignStore.getState().projects[testProjectId]?.doc)
     expect(body?.stepAssetRef).toBe(customAssetRef)
     expect(body?.stepFilePath).toBe(testFilePath)
     expect(body?.stepFileName).toBe('manifold_v2.step')
@@ -347,11 +348,11 @@ describe('cube-cut-edge.step Import & CSG Pipeline Integrity Tests', () => {
     expect(session?.baseBodyError).toContain('/non/existent/missing.step')
 
     // 2. 验证成功从内嵌 stepContent 重建了水密 OCC 几何与特征面
-    expect(session?.doc.baseBody.stepMesh).toBeDefined()
-    expect(session?.doc.baseBody.stepMesh?.positions.length).toBeGreaterThan(0)
-    expect(session?.doc.baseBody.faces.length).toBe(7) // cube-cut-edge.step 包含7个特征面
+    expect(projectBody(session?.doc)?.stepMesh).toBeDefined()
+    expect(projectBody(session?.doc)?.stepMesh?.positions.length).toBeGreaterThan(0)
+    expect(projectBody(session?.doc)?.faces.length).toBe(7) // cube-cut-edge.step 包含7个特征面
     // 尺寸也从实际 OCC 模型解析更新
-    expect(session?.doc.baseBody.dimensions[0]).toBeCloseTo(1559.1, 1)
+    expect(projectBody(session?.doc)?.dimensions[0]).toBeCloseTo(1559.1, 1)
 
     // 恢复 window.fileApi
     ;(globalThis as any).window.fileApi = originalFileApi

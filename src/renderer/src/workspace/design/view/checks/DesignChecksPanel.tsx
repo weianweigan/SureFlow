@@ -1,3 +1,4 @@
+import { physicalScheme } from '@shared/design/cavityTree'
 /**
  * 设计检查可伸缩底栏面板 (DesignChecksPanel)
  * 严格对齐 PRD-FR-04-15 §4
@@ -42,7 +43,7 @@ export const DesignChecksPanel: React.FC<DesignChecksPanelProps> = ({ projectId,
   const session = useDesignStore((s) => s.projects[projectId])
   const selectFeature = useDesignStore((s) => s.selectFeature)
   const doc = session?.doc
-  const activeScheme = doc?.schemes.find((s) => s.id === doc.activeSchemeId) || doc?.schemes[0]
+  const activeScheme = physicalScheme(doc?.schemes.find((s) => s.id === doc.activeSchemeId) || doc?.schemes[0])
   const schemeId = activeScheme?.id || 'default'
 
   // Store 状态

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import type { SfbProject } from '@shared/design/types'
+import { createDefaultProject, type SfbProject } from '@shared/design/types'
 
 vi.mock('electron', () => ({
   dialog: {
@@ -12,6 +12,7 @@ vi.mock('electron', () => ({
   }
 }))
 
+import { normalizeProject } from '@shared/design/cavityTree'
 import { writeProject, readProject } from '../projectService'
 
 describe('projectService: writeProject & readProject', () => {
@@ -25,29 +26,7 @@ describe('projectService: writeProject & readProject', () => {
     await fs.rm(tmpDir, { recursive: true, force: true })
   })
 
-  const sampleDoc: SfbProject = {
-    schemaVersion: '1.0.0',
-    meta: {
-      projectName: 'TestValve',
-      createdAt: '2026-09-01T00:00:00Z',
-      modifiedAt: '2026-09-01T00:00:00Z',
-      author: 'Tester'
-    },
-    baseBody: {
-      template: 'box',
-      dimensions: [120, 100, 80],
-      material: '铝合金 6061-T6'
-    },
-    schemes: [
-      {
-        id: 'scheme-1',
-        name: '默认方案',
-        cavities: [],
-        groups: []
-      }
-    ],
-    activeSchemeId: 'scheme-1'
-  }
+  const sampleDoc: SfbProject = createDefaultProject('TestValve')
 
   it('writes embedded preview and sliced cache, and reads legacy GLB sidecars', async () => {
     const projectPath = path.join(tmpDir, 'MyValve.sfb')
@@ -111,4 +90,21 @@ describe('projectService: writeProject & readProject', () => {
     expect(readResult.cacheBuffer).not.toBeNull()
     expect(readResult.cacheBuffer!.byteLength).toBe(mockCacheBytes.length)
   })
+  it('round trips nested cavities and separate scheme bases in the new format', async () => {
+    const doc=createDefaultProject('Nested')
+    doc.schemes[0].cavities=[{kind:'compound',instanceId:'parent',name:'Parent',libraryId:'lib',templateId:'tpl',faceId:'top',u:30,v:40,rotation:15,suppressed:false,children:[{instanceId:'child',name:'Child',libraryId:'lib',templateId:'tpl',u:5,v:0,rotation:20,depthOffset:0,suppressed:true}]}]
+    const second=structuredClone(doc.schemes[0]);second.id='second';second.baseBody.dimensions=[200,150,100];doc.schemes.push(second)
+    const filePath=path.join(tmpDir,'Nested.sfb');await writeProject({filePath,doc})
+    const loaded=await readProject(filePath)
+    expect(loaded.doc).toEqual(doc);expect(loaded.doc.schemaVersion).toBe('2.0.0');expect('baseBody' in loaded.doc).toBe(false);expect('groups' in loaded.doc.schemes[0]).toBe(false)
+  })
+  it('opens legacy holes independently and saves without old groups or project body', async () => {
+    const current=createDefaultProject(),body=current.schemes[0].baseBody
+    const legacy={...current,schemaVersion:'1.0.0',baseBody:body,schemes:[{id:'old',name:'Old',groups:[{id:'parent',cavityIds:['child'],outline:{}}],cavities:[{instanceId:'child',name:'Child',libraryId:'lib',templateId:'tpl',faceId:'top',u:30,v:40,rotation:0,depthOffset:0,groupId:'parent'}]}]}
+    const oldPath=path.join(tmpDir,'Old.sfb');await fs.writeFile(oldPath,JSON.stringify(legacy))
+    const opened=await readProject(oldPath);expect(opened.doc.schemaVersion).toBe('1.0.0')
+    const upgraded=normalizeProject(opened.doc),newPath=path.join(tmpDir,'New.sfb');await writeProject({filePath:newPath,doc:upgraded})
+    const loaded=await readProject(newPath);expect(loaded.doc.schemaVersion).toBe('2.0.0');expect(loaded.doc.schemes[0].cavities[0].kind).toBe('single');expect('groups' in loaded.doc.schemes[0]).toBe(false)
+  })
+
 })

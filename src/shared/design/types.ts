@@ -202,8 +202,8 @@ export interface CavityInstance {
   steps?: Step[]
   /** 侧油口轴向开口范围快照；不表示独立径向钻孔。 */
   ports?: Port[]
-  /** 所属组合/分组 ID */
-  groupId?: string
+  /** 展开后的物理子孔所属父孔 ID；不作为顶层分组关系保存 */
+  parentId?: string
   faceId: string
   /** 面坐标系横向偏移 (mm) */
   u: number
@@ -225,15 +225,46 @@ export interface CavityInstance {
   dangling?: boolean
 }
 
-export interface CavityGroup {
+/** An independently placed physical hole. */
+export interface SingleCavity extends Omit<CavityInstance, 'parentId'> {
+  kind: 'single'
+}
+
+/** Child coordinates and angles are relative to the compound datum. */
+export type SubCavity = Omit<CavityInstance, 'faceId' | 'parentId'>
+
+export interface CompoundCavity {
+  kind: 'compound'
+  instanceId: string
+  name: string
+  libraryId: string
+  templateId: string
+  cavityType?: CavityType
+  faceId: string
+  u: number
+  v: number
+  rotation: number
+  outline?: Outline
+  /** Reflection of the local outline about its U axis. */
+  outlineMirrored?: boolean
+  suppressed?: boolean
+  children: SubCavity[]
+}
+
+export type CavityFeature = SingleCavity | CompoundCavity
+
+/** Derived rendering frame, never persisted separately in a scheme. */
+export interface CompoundFrame {
   id: string
   name: string
   /** 组合孔腔类型（如 flange, pattern-valve 等） */
   cavityType?: CavityType
   faceId?: string
   cavityIds: string[]
+  suppressed?: boolean
   /** 组合安装轮廓（SVG path 或标准矩形/法兰） */
   outline?: Outline
+  outlineMirrored?: boolean
   /** 组合中心在宿主面上的 U 坐标 */
   u?: number
   /** 组合中心在宿主面上的 V 坐标 */
@@ -293,8 +324,9 @@ export interface SchemeDefinition {
   id: string
   name: string
   description?: string
-  cavities: CavityInstance[]
-  groups?: CavityGroup[]
+  /** 该方案独立使用的基体 */
+  baseBody: BaseBodyConfig
+  cavities: CavityFeature[]
   /** 用户对通道个性化配置的持久化映射 (key 为 bindingKey) */
   channelConfigs?: Record<string, ChannelUserConfig>
   /** 设计检查配置 (PRD-FR-04-15) */
@@ -319,7 +351,6 @@ export interface SfbProject {
   $schema?: string
   schemaVersion: string
   meta: SfbProjectMeta
-  baseBody: BaseBodyConfig
   activeSchemeId: string
   schemes: SchemeDefinition[]
 }
@@ -476,10 +507,26 @@ export function getBaseBodyIcon(body: BaseBodyConfig): string {
 export function createDefaultProject(projectName: string = '未命名工程'): SfbProject {
   const now = new Date().toISOString()
   const defaultSchemeId = 'scheme-01'
+  const baseBody: BaseBodyConfig = {
+    type: 'template',
+    template: 'box',
+    dimensions: [120, 100, 80],
+    material: '45# 优质碳素结构钢',
+    materialConfig: {
+      presetId: '45-steel',
+      color: '#a0a4a8',
+      metalness: 0.55,
+      roughness: 0.35,
+      opacity: 0.0,
+      density: 7.85
+    },
+    stepAssetRef: null,
+    faces: computeTemplateFaces('box', [120, 100, 80])
+  }
 
   return {
-    $schema: 'https://sureflow.dev/schemas/sfb-v1.json',
-    schemaVersion: '1.0.0',
+    $schema: 'https://sureflow.dev/schemas/sfb-v2.json',
+    schemaVersion: '2.0.0',
     meta: {
       projectName,
       version: '1.0.0',
@@ -487,30 +534,14 @@ export function createDefaultProject(projectName: string = '未命名工程'): S
       modifiedAt: now,
       author: 'SureFlow User'
     },
-    baseBody: {
-      type: 'template',
-      template: 'box',
-      dimensions: [120, 100, 80],
-      material: '45# 优质碳素结构钢',
-      materialConfig: {
-        presetId: '45-steel',
-        color: '#a0a4a8',
-        metalness: 0.55,
-        roughness: 0.35,
-        opacity: 0.0,
-        density: 7.85
-      },
-      stepAssetRef: null,
-      faces: computeTemplateFaces('box', [120, 100, 80])
-    },
     activeSchemeId: defaultSchemeId,
     schemes: [
       {
         id: defaultSchemeId,
         name: '方案 1 (默认)',
         description: '初始空布局方案',
-        cavities: [],
-        groups: []
+        baseBody: JSON.parse(JSON.stringify(baseBody)),
+        cavities: []
       }
     ]
   }

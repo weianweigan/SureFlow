@@ -11,7 +11,7 @@ export interface OutlineGeometries {
  * 将孔腔安装轮廓（Outline）生成 Three.js 几何体（边框线与半透明面）
  * 坐标系：安装面局部 (U, V) 笛卡尔坐标，原点位于轮廓几何中心
  */
-export function buildOutlineGeometry(
+function buildLocalOutlineGeometry(
   outline?: Outline | null,
   unit: 'mm' | 'in' = 'mm'
 ): OutlineGeometries | null {
@@ -114,4 +114,14 @@ export function buildOutlineGeometry(
   }
 
   return null
+}
+
+/** Reflect the complete outline for mirrored compound instances. */
+export function buildOutlineGeometry(outline?: Outline | null, unit: 'mm' | 'in' = 'mm', mirrored = false): OutlineGeometries | null {
+  const result = buildLocalOutlineGeometry(outline, unit)
+  if (result && mirrored) {
+    result.lineGeometry.scale(1, -1, 1)
+    result.fillGeometry?.scale(1, -1, 1)
+  }
+  return result
 }

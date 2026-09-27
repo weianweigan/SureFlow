@@ -1,3 +1,4 @@
+import { projectBody } from '@shared/design/cavityTree'
 import { useGeometrySnap } from '../../interaction/snapping/useGeometrySnap'
 import { cavityAxis, type Vec3 } from '@shared/design/cavityGeometry'
 import { localToWorldPoint } from '@shared/design/faceMath'
@@ -9,7 +10,7 @@ import { useDesignStore } from '../../model/designStore'
 import { useLibraryStore } from '../../../library/viewmodel/libraryStore'
 import { resolveAllTemplateHoles } from '../../geometry/templateHoleResolver'
 import { detectBaseBodyFace, getBoxFaceBasis, worldToLocalPoint } from '@shared/design/faceMath'
-import type { CavityInstance, CavityGroup } from '@shared/design/types'
+import type { CavityInstance, CompoundFrame } from '@shared/design/types'
 
 interface PlacementControllerProps {
   projectId: string
@@ -52,7 +53,7 @@ export const PlacementController: FC<PlacementControllerProps> = ({
     const resolvedHoles = resolveAllTemplateHoles(store.template, libraryDoc)
     const isMulti = resolvedHoles.length > 1
     const hasOutline = Boolean(store.template.geometry?.outline)
-    const groupId = isMulti || hasOutline ? `group-${Date.now()}-${Math.floor(Math.random() * 1000)}` : undefined
+    const parentId = isMulti || hasOutline ? `group-${Date.now()}-${Math.floor(Math.random() * 1000)}` : undefined
 
     const instances: CavityInstance[] = resolvedHoles.map((h, idx) => ({
       instanceId: `cav-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000)}`,
@@ -65,7 +66,7 @@ export const PlacementController: FC<PlacementControllerProps> = ({
       ports: h.ports,
       tiltAngle: h.tiltAngle,
       azimuth: h.azimuth,
-      groupId,
+      parentId,
       faceId: store.currentFaceId!,
       u: store.u + h.uOffset,
       v: store.v + h.vOffset,
@@ -75,10 +76,10 @@ export const PlacementController: FC<PlacementControllerProps> = ({
       suppressed: false
     }))
 
-    let group: CavityGroup | undefined
-    if (groupId) {
+    let group: CompoundFrame | undefined
+    if (parentId) {
       group = {
-        id: groupId,
+        id: parentId,
         name: store.template.name,
         cavityType: store.template.cavityType,
         faceId: store.currentFaceId,
@@ -103,7 +104,7 @@ export const PlacementController: FC<PlacementControllerProps> = ({
     raycasterRef.current.setFromCamera(pointer, camera)
 
     const project = useDesignStore.getState().projects[projectId]
-    const body = project?.doc.baseBody
+    const body = projectBody(project?.doc)
     let point: THREE.Vector3 | null = null
     let faceId: string | null = null
     if (!body?.template || (body.type !== 'step' && body.template === 'box')) {

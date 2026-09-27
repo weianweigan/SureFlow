@@ -1,3 +1,4 @@
+import { physicalScheme } from '@shared/design/cavityTree'
 import { useLocale as _useLocale } from '@renderer/i18n/useLocale'
 import { t as _t } from '@shared/i18n'
 import React, { useMemo } from 'react'
@@ -24,7 +25,7 @@ export const SidePortInspector: React.FC<SidePortInspectorProps> = ({
 
   if (!session) return null
   const { doc } = session
-  const activeScheme = doc.schemes.find((s) => s.id === doc.activeSchemeId) || doc.schemes[0]
+  const activeScheme = physicalScheme(doc.schemes.find((s) => s.id === doc.activeSchemeId) || doc.schemes[0])
   const cavity = activeScheme?.cavities.find((c) => c.instanceId === cavityId)
 
   if (!cavity) return null

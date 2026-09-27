@@ -37,9 +37,9 @@ export function evaluateOutlineChecks(
 
       // 组合孔内的孔不检查二维轮廓重叠
       if (
-        cavA.cavity.groupId &&
-        cavB.cavity.groupId &&
-        cavA.cavity.groupId === cavB.cavity.groupId
+        cavA.cavity.parentId &&
+        cavB.cavity.parentId &&
+        cavA.cavity.parentId === cavB.cavity.parentId
       ) {
         continue
       }

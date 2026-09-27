@@ -1,3 +1,4 @@
+import { projectBody, physicalScheme } from '@shared/design/cavityTree'
 import { useLocale as _useLocale } from '@renderer/i18n/useLocale'
 import { t as _t } from '@shared/i18n'
 import { useMemo, type FC } from 'react'
@@ -36,7 +37,7 @@ export const GhostCavityMesh: FC<GhostCavityMeshProps> = ({ dimensions, projectI
   const session = useDesignStore((s) => (projectId ? s.projects[projectId] : undefined))
   const activeScheme = useMemo(() => {
     if (!session?.doc) return null
-    return (
+    return physicalScheme(
       session.doc.schemes.find((s) => s.id === session.doc.activeSchemeId) ||
       session.doc.schemes[0]
     )
@@ -77,7 +78,7 @@ export const GhostCavityMesh: FC<GhostCavityMeshProps> = ({ dimensions, projectI
     return buildOutlineGeometry(template.geometry.outline, template.unit)
   }, [template?.geometry?.outline, template?.unit])
 
-  const baseBody = session?.doc?.baseBody
+  const baseBody = projectBody(session?.doc)
 
   // 3. 面基准及世界空间变换矩阵（以落点 (u, v) 为中心原点）
   const { basis, worldMatrix4 } = useMemo(() => {

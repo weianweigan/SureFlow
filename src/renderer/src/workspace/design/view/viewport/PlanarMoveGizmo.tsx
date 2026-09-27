@@ -1,3 +1,4 @@
+import { projectBody, physicalScheme } from '@shared/design/cavityTree'
 import { useLocale as _useLocale } from '@renderer/i18n/useLocale'
 import { GizmoVisualLayer } from './GizmoVisualLayer'
 import { t as _t } from '@shared/i18n'
@@ -19,7 +20,7 @@ import {
   worldToLocalPoint,
   type FaceBasis
 } from '@shared/design/faceMath'
-import type { CavityInstance, CavityGroup } from '@shared/design/types'
+import type { CavityInstance, CompoundFrame } from '@shared/design/types'
 import { useLibraryStore } from '../../../library/viewmodel/libraryStore'
 import { getCavitySteps, parseCavityBands } from '../../geometry/cavityProfileBuilder'
 import { buildOutlineGeometry } from '../../geometry/outlineBuilder'
@@ -193,9 +194,9 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
   const updateCavityPosition = useDesignStore((s) => s.updateCavityPosition)
   const updateCavityPositions = useDesignStore((s) => s.updateCavityPositions)
   const moveRigidCavities = useDesignStore((s) => s.moveRigidCavities)
-  const moveGroup = useDesignStore((s) => s.moveGroup)
-  const rotateGroup = useDesignStore((s) => s.rotateGroup)
-  const rebindGroupFace = useDesignStore((s) => s.rebindGroupFace)
+  const moveCompound = useDesignStore((s) => s.moveCompound)
+  const rotateCompound = useDesignStore((s) => s.rotateCompound)
+  const rebindCompoundFace = useDesignStore((s) => s.rebindCompoundFace)
 
   const [anchorChoice,setAnchorChoice]=useState('auto')
   const [referenceChoice,setReferenceChoice]=useState('')
@@ -245,7 +246,7 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
     initialPositions: Map<string, { x: number; y: number; faceId: string; rotation?: number }>
   } | null>(null)
 
-  const activeScheme = session?.doc.schemes.find((s) => s.id === session.doc.activeSchemeId) || session?.doc.schemes[0]
+  const activeScheme = physicalScheme(session?.doc.schemes.find((s) => s.id === session.doc.activeSchemeId) || session?.doc.schemes[0])
   const selected = session?.selected
 
   // 解析选中的特征集合
@@ -256,8 +257,8 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
   // 判断是否直接选中了组合孔组（双击组合孔或从特征树显式选中组）
   const isDirectGroupSelected = useMemo(() => {
     if (anchorChoice !== 'auto') return false
-    if (selected?.type === 'group') return true
-    if (selectedFeatures.length === 1 && selectedFeatures[0].type === 'group') return true
+    if (selected?.type === 'compound') return true
+    if (selectedFeatures.length === 1 && selectedFeatures[0].type === 'compound') return true
     return false
   }, [selected, selectedFeatures, anchorChoice])
 
@@ -269,7 +270,7 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
     if (!activeScheme) {
       return {
         isTargetGroup: false,
-        targetGroup: null as CavityGroup | null,
+        targetGroup: null as CompoundFrame | null,
         targetCavities: [] as CavityInstance[],
         datumCavity: null as CavityInstance | null,
         targetFaceId: 'top',
@@ -279,10 +280,10 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
     }
 
     // 1. 如果直接选中类型是 group（双击组合孔）
-    if (selected?.type === 'group') {
-      const grp = activeScheme.groups?.find((g) => g.id === selected.id) || null
+    if (selected?.type === 'compound') {
+      const grp = activeScheme.compounds?.find((g) => g.id === selected.id) || null
       if (grp) {
-        const members = activeScheme.cavities.filter((c) => c.groupId === grp.id || grp.cavityIds.includes(c.instanceId))
+        const members = activeScheme.cavities.filter((c) => c.parentId === grp.id || grp.cavityIds.includes(c.instanceId))
         const fId = grp.faceId || members[0]?.faceId || 'top'
         // 关键：组合孔原点作为基准
         const cu = grp.u != null ? grp.u : (members.length > 0 ? members.reduce((acc, c) => acc + c.u, 0) / members.length : 0)
@@ -300,10 +301,10 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
     }
 
     // 2. 如果选中的是单一特征且对应组（兼容 features 结构）
-    if (selectedFeatures.length === 1 && selectedFeatures[0].type === 'group') {
-      const grp = activeScheme.groups?.find((g) => g.id === selectedFeatures[0].id) || null
+    if (selectedFeatures.length === 1 && selectedFeatures[0].type === 'compound') {
+      const grp = activeScheme.compounds?.find((g) => g.id === selectedFeatures[0].id) || null
       if (grp) {
-        const members = activeScheme.cavities.filter((c) => c.groupId === grp.id || grp.cavityIds.includes(c.instanceId))
+        const members = activeScheme.cavities.filter((c) => c.parentId === grp.id || grp.cavityIds.includes(c.instanceId))
         const fId = grp.faceId || members[0]?.faceId || 'top'
         const cu = grp.u != null ? grp.u : (members.length > 0 ? members.reduce((acc, c) => acc + c.u, 0) / members.length : 0)
         const cv = grp.v != null ? grp.v : (members.length > 0 ? members.reduce((acc, c) => acc + c.v, 0) / members.length : 0)
@@ -330,15 +331,15 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
     if (singleCavityId) {
       const cav = activeScheme.cavities.find((c) => c.instanceId === singleCavityId)
       if (cav) {
-        const grp = activeScheme.groups?.find(
-          (g) => g.id === cav.groupId || g.cavityIds.includes(cav.instanceId)
+        const grp = activeScheme.compounds?.find(
+          (g) => g.id === cav.parentId || g.cavityIds.includes(cav.instanceId)
         ) || null
 
         if (grp) {
           // 该子孔归属于组合孔！
           // 核心设计：移动 gizmo 使用该子孔作为基准 (centerX = cav.u, centerY = cav.v)，但移动整个组合孔！
           const members = activeScheme.cavities.filter(
-            (c) => c.groupId === grp.id || grp.cavityIds.includes(c.instanceId)
+            (c) => c.parentId === grp.id || grp.cavityIds.includes(c.instanceId)
           )
           const fId = cav.faceId || grp.faceId || 'top'
           return {
@@ -375,7 +376,7 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
 
     return {
       isTargetGroup: false,
-      targetGroup: null as CavityGroup | null,
+      targetGroup: null as CompoundFrame | null,
       targetCavities: cavs,
       datumCavity: null,
       targetFaceId: fId,
@@ -385,12 +386,12 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
   }, [activeScheme, selected, selectedFeatures])
 
   const anchorCavity=targetCavities.find(c=>`cavity:${c.instanceId}`===anchorChoice)
-  const anchorGroup=activeScheme?.groups?.find(g=>`group:${g.id}`===anchorChoice && targetCavities.some(c=>g.cavityIds.includes(c.instanceId)||c.groupId===g.id))
+  const anchorGroup=activeScheme?.compounds?.find(g=>`group:${g.id}`===anchorChoice && targetCavities.some(c=>g.cavityIds.includes(c.instanceId)||c.parentId===g.id))
   const centerX=anchorCavity?.u??anchorGroup?.u??defaultCenterX
   const centerY=anchorCavity?.v??anchorGroup?.v??defaultCenterY
   const referenceOptions=references.filter(r=>r.kind==='point'&&r.faceId===targetFaceId&&!targetCavities.some(c=>c.instanceId===r.ownerId))
   const chosenReference=referenceOptions.find(r=>r.id===referenceChoice)
-  const referenceLocal=chosenReference?worldToLocalPoint(getBoxFaceBasis(targetFaceId,dimensions,session?.doc.baseBody),chosenReference.point):null
+  const referenceLocal=chosenReference?worldToLocalPoint(getBoxFaceBasis(targetFaceId,dimensions,projectBody(session?.doc)),chosenReference.point):null
 
   useEffect(()=>{
     setDragAxis(null);setPreviewOffset(null);setRotatePreviewDeg(0)
@@ -476,8 +477,8 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
   // 当前有效宿主面与基准坐标系
   const currentFaceId = previewOffset?.targetFaceId || targetFaceId
   const basis = useMemo<FaceBasis>(() => {
-    return getBoxFaceBasis(currentFaceId, dimensions, session?.doc.baseBody)
-  }, [currentFaceId, dimensions, session?.doc.baseBody])
+    return getBoxFaceBasis(currentFaceId, dimensions, projectBody(session?.doc))
+  }, [currentFaceId, dimensions, projectBody(session?.doc)])
 
   // 当前 Gizmo 局部坐标系旋转四元数（X->u, Y->v, Z->w）
   const orientationQuat = useMemo(() => {
@@ -533,7 +534,7 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
       const dv = c.v - centerY
       const radius = Math.hypot(du, dv)
       const startAngle = Math.atan2(dv, du)
-      // 刚体旋转：与 2D 坐标系及 rotateGroup 保持绝对同向 (+X 向 +Y 正向旋转)
+      // 刚体旋转：与 2D 坐标系及 rotateCompound 保持绝对同向 (+X 向 +Y 正向旋转)
       const newDu = du * cosA - dv * sinA
       const newDv = du * sinA + dv * cosA
 
@@ -556,10 +557,15 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
 
   // 解析组合特征的安装轮廓几何体（在自身原点局部坐标系下，单位 mm）
   const groupOutlineLineGeom = useMemo(() => {
-    if (!isTargetGroup || !targetGroup || targetCavities.length === 0) return null
+    if (!isTargetGroup || !targetGroup || targetGroup.suppressed || targetCavities.length === 0) return null
     if (targetGroup.outline) {
-      const built = buildOutlineGeometry(targetGroup.outline)
-      if (built?.lineGeometry) return built.lineGeometry
+      const built = buildOutlineGeometry(targetGroup.outline, 'mm', Boolean(targetGroup.outlineMirrored))
+      if (built?.lineGeometry) {
+        built.lineGeometry.rotateZ((targetGroup.rotation || 0) * Math.PI / 180)
+        built.lineGeometry.translate((targetGroup.u ?? centerX)-centerX, (targetGroup.v ?? centerY)-centerY, 0)
+        built.fillGeometry?.dispose()
+        return built.lineGeometry
+      }
     }
 
     // 默认回退：基于所有成员孔的外接矩形框（含 6mm 安装余量）
@@ -626,7 +632,7 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
         if (e.key === 'ArrowDown') dY = -step
 
         if (isTargetGroup && targetGroup) {
-          moveGroup(projectId, targetGroup.id, dX, dY)
+          moveCompound(projectId, targetGroup.id, dX, dY)
         } else if (targetCavities.length === 1) {
           const cav = targetCavities[0]
           updateCavityPosition(
@@ -643,7 +649,7 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [dragAxis, targetCavities, projectId, updateCavityPosition, moveRigidCavities, isTargetGroup, targetGroup, moveGroup, allSameFace])
+  }, [dragAxis, targetCavities, projectId, updateCavityPosition, moveRigidCavities, isTargetGroup, targetGroup, moveCompound, allSameFace])
 
   // 监听全局指针移动与释放
   useEffect(() => {
@@ -680,7 +686,7 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
 
       // ── 1. 旋转手柄拖拽逻辑（支持顺时针/逆时针双向丝滑拖拽，90° 顺畅磁吸锁定，Shift 解除） ──
       if (startState.axis === 'rotate') {
-        const curBasis = getBoxFaceBasis(startState.startFaceId, dimensions, session?.doc.baseBody)
+        const curBasis = getBoxFaceBasis(startState.startFaceId, dimensions, projectBody(session?.doc))
         const intersectPoint = new THREE.Vector3()
         if (raycaster.ray.intersectPlane(startState.startPlane, intersectPoint)) {
           const local = worldToLocalPoint(curBasis, [intersectPoint.x, intersectPoint.y, intersectPoint.z])
@@ -724,7 +730,7 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
       }
 
       // ── 2. 平移计算（基于初始点击点相对增量，彻底消除 Jump-on-Click 瞬移） ──
-      const curBasis = getBoxFaceBasis(startState.startFaceId, dimensions, session?.doc.baseBody)
+      const curBasis = getBoxFaceBasis(startState.startFaceId, dimensions, projectBody(session?.doc))
       const intersectPoint = new THREE.Vector3()
 
       // ── 3. 象限自由拖拽模式下的跨面实时检测与定位 ──
@@ -742,7 +748,7 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
 
         if (hit && hit.face) {
           const worldNormal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld)
-          const detectedFace = detectBaseBodyFace(worldNormal, hit.point, session?.doc.baseBody, dimensions)
+          const detectedFace = detectBaseBodyFace(worldNormal, hit.point, projectBody(session?.doc), dimensions)
           if (detectedFace) {
             activeFace = detectedFace
           }
@@ -751,7 +757,7 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
 
       if (activeFace !== startState.startFaceId) {
         // 跨到其他表面
-        const newBasis = getBoxFaceBasis(activeFace, dimensions, session?.doc.baseBody)
+        const newBasis = getBoxFaceBasis(activeFace, dimensions, projectBody(session?.doc))
         let pt = new THREE.Vector3()
         const hits = raycaster.intersectObjects(scene.children, true)
         const hit = hits.find(
@@ -850,7 +856,7 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
         // 1. 处理旋转提交
         if (startState.axis === 'rotate') {
           if (targetGroup && Math.abs(rotatePreviewRef.current) > 0.1) {
-            rotateGroup(projectId, targetGroup.id, rotatePreviewRef.current)
+            rotateCompound(projectId, targetGroup.id, rotatePreviewRef.current, {u:centerX,v:centerY})
           }
           justDraggedUntilRef.current = Date.now() + 250
         } else if (previewOffsetRef.current) {
@@ -859,7 +865,7 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
           // 2. 跨面移动（多孔成组、单孔或多孔联合）
           if (newFace && newFace !== startState.startFaceId) {
             if (isTargetGroup && targetGroup) {
-              rebindGroupFace(projectId, targetGroup.id, newFace, 'project', {
+              rebindCompoundFace(projectId, targetGroup.id, newFace, 'project', {
                 u: (newX ?? centerX) - (centerX - (targetGroup.u ?? centerX)),
                 v: (newY ?? centerY) - (centerY - (targetGroup.v ?? centerY))
               })
@@ -887,7 +893,7 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
           } else if (Math.abs(deltaX) > 0.001 || Math.abs(deltaY) > 0.001) {
             // 3. 同面移动
             if (isTargetGroup && targetGroup) {
-              moveGroup(projectId, targetGroup.id, deltaX, deltaY)
+              moveCompound(projectId, targetGroup.id, deltaX, deltaY)
             } else if (targetCavities.length === 1) {
               updateCavityPosition(
                 projectId,
@@ -951,9 +957,9 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
     controls,
     isTargetGroup,
     projectId,
-    rebindGroupFace,
-    rotateGroup,
-    moveGroup,
+    rebindCompoundFace,
+    rotateCompound,
+    moveCompound,
     moveRigidCavities,
     targetGroup,
     updateCavityPosition,
@@ -1042,7 +1048,7 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
           {targetCavities.length>1&&<label className="flex gap-2 items-center whitespace-nowrap">{_t("移动基准")}<select aria-label={_t("移动基准")} className="max-w-40 bg-background" value={anchorCavity||anchorGroup?anchorChoice:'auto'} onChange={e=>setAnchorChoice(e.target.value)}>
             <option value="auto">{_t("默认定位基准")}</option>
             {targetCavities.map(c=><option key={c.instanceId} value={`cavity:${c.instanceId}`}>{c.name}</option>)}
-            {activeScheme?.groups?.filter(g=>targetCavities.some(c=>g.cavityIds.includes(c.instanceId)||c.groupId===g.id)).map(g=><option key={g.id} value={`group:${g.id}`}>{g.name} {_t("原点")}</option>)}
+            {activeScheme?.compounds?.filter(g=>targetCavities.some(c=>g.cavityIds.includes(c.instanceId)||c.parentId===g.id)).map(g=><option key={g.id} value={`group:${g.id}`}>{g.name} {_t("原点")}</option>)}
           </select></label>}
           <label className="flex gap-2 items-center whitespace-nowrap">{_t("尺寸参考")}<select aria-label={_t("尺寸参考")} className="max-w-40 bg-background" value={chosenReference?referenceChoice:''} onChange={e=>setReferenceChoice(e.target.value)}>
             <option value="">{_t("安装面原点")}</option>{referenceOptions.map(r=><option key={r.id} value={r.id}>{_t(r.label)}</option>)}
@@ -1061,7 +1067,7 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
         onUpdateX={(newX) => {
           if (isTargetGroup && targetGroup) {
             const deltaX = newX - effectiveX
-            moveGroup(projectId, targetGroup.id, deltaX, 0)
+            moveCompound(projectId, targetGroup.id, deltaX, 0)
           } else if (targetCavities.length === 1) {
             updateCavityPosition(projectId, targetCavities[0].instanceId, newX, effectiveY)
           } else {
@@ -1071,7 +1077,7 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
         onUpdateY={(newY) => {
           if (isTargetGroup && targetGroup) {
             const deltaY = newY - effectiveY
-            moveGroup(projectId, targetGroup.id, 0, deltaY)
+            moveCompound(projectId, targetGroup.id, 0, deltaY)
           } else if (targetCavities.length === 1) {
             updateCavityPosition(projectId, targetCavities[0].instanceId, effectiveX, newY)
           } else {
@@ -1436,7 +1442,7 @@ export const PlanarMoveGizmo: FC<PlanarMoveGizmoProps> = ({ projectId, dimension
                     onClick={(e) => {
                       e.stopPropagation()
                       if (Date.now() < justDraggedUntilRef.current) return
-                      if (targetGroup) rotateGroup(projectId, targetGroup.id, 90)
+                      if (targetGroup) rotateCompound(projectId, targetGroup.id, 90, {u:centerX,v:centerY})
                     }}
                     onPointerOver={() => {
                       setHoverAxis('rotate')

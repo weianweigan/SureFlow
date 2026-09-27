@@ -34,7 +34,7 @@ export function ConnectorTitlebarTab(): React.ReactElement {
   }
 
   const tooltipTitle = isConnected
-    ? t('已连接 ') + cadType + t(' · 实时协同中 (点击打开连接器中心)')
+    ? `${t('已连接')} ${cadType} · ${t('实时协同中 (点击打开连接器中心)')}`
     : t('CAD 协同连接器 · 点击打开中心')
 
   return (

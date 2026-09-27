@@ -1,3 +1,4 @@
+import { projectBody, physicalScheme } from '@shared/design/cavityTree'
 import { useLocale as _useLocale } from '@renderer/i18n/useLocale'
 import { t as _t } from '@shared/i18n'
 import React from 'react'
@@ -15,11 +16,11 @@ export const SchemeGlobalInspector: React.FC<SchemeGlobalInspectorProps> = ({ pr
 
   if (!session) return null
   const { doc } = session
-  const [sx, sy, sz] = doc.baseBody.dimensions
-  const activeScheme = doc.schemes.find((s) => s.id === doc.activeSchemeId) || doc.schemes[0]
+  const [sx, sy, sz] = projectBody(doc).dimensions
+  const activeScheme = physicalScheme(doc.schemes.find((s) => s.id === doc.activeSchemeId) || doc.schemes[0])
 
   const cavityCount = activeScheme?.cavities.length || 0
-  const groupCount = activeScheme?.groups?.length || 0
+  const groupCount = activeScheme?.compounds?.length || 0
 
   return (
     <div className="flex h-full flex-col select-none overflow-y-auto">
@@ -51,7 +52,7 @@ export const SchemeGlobalInspector: React.FC<SchemeGlobalInspectorProps> = ({ pr
 
         <PropertyRow label={_t('形状类型')}>
           <span className="text-xs text-muted-foreground capitalize">
-            {doc.baseBody.template || 'box'}
+            {projectBody(doc).template || 'box'}
           </span>
         </PropertyRow>
       </FormSectionWrapper>

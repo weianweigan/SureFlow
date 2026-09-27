@@ -1,3 +1,4 @@
+import { physicalScheme } from '@shared/design/cavityTree'
 import { useEffect, useMemo } from 'react'
 import { useThree } from '@react-three/fiber'
 import * as THREE from 'three'
@@ -17,7 +18,7 @@ export function MarqueeSelection({ projectId, dimensions }: {
   const { gl, camera, scene, controls } = useThree()
   const session = useDesignStore(s => s.projects[projectId])
   const library = useLibraryStore(s => s.doc)
-  const scheme = session?.doc.schemes.find(s => s.id === session.doc.activeSchemeId)
+  const scheme = physicalScheme(session?.doc.schemes.find(s => s.id === session.doc.activeSchemeId))
   const cavities = scheme?.cavities
   const [sx, sy, sz] = dimensions
   // Store actual profile vertices, including inclined-hole transforms, rather than mouth centers.

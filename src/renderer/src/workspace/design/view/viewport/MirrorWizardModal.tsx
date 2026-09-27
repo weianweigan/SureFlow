@@ -1,3 +1,5 @@
+import { promoteFeatures } from '../../model/selectionMath'
+import { physicalScheme } from '@shared/design/cavityTree'
 import { useLocale as _useLocale } from '@renderer/i18n/useLocale'
 import { t as _t } from '@shared/i18n'
 import { useState, useMemo, type FC } from 'react'
@@ -8,7 +10,7 @@ import {
   X,
   Check
 } from 'lucide-react'
-import { useDesignStore, getSelectedCavityIds } from '../../model/designStore'
+import { useDesignStore, getSelectedCavityIds, getSelectedFeatures } from '../../model/designStore'
 import posthog from '@renderer/lib/posthog'
 
 interface MirrorWizardModalProps {
@@ -37,17 +39,9 @@ export const MirrorWizardModal: FC<MirrorWizardModalProps> = ({
   const [isCopy, setIsCopy] = useState<boolean>(true)
 
   const selected = session?.selected
-  const activeScheme = session?.doc.schemes.find((s) => s.id === session.doc.activeSchemeId) || session?.doc.schemes[0]
+  const activeScheme = physicalScheme(session?.doc.schemes.find((s) => s.id === session.doc.activeSchemeId) || session?.doc.schemes[0])
 
-  const selectedCavityIds = useMemo(() => {
-    if (!selected) return []
-    if (selected.type === 'cavity') return getSelectedCavityIds(selected)
-    if (selected.type === 'group') {
-      const grp = activeScheme?.groups?.find((g) => g.id === selected.id)
-      return grp ? grp.cavityIds : []
-    }
-    return []
-  }, [selected, activeScheme])
+  const selectedCavityIds = useMemo(() => getSelectedCavityIds({type:'features',items:promoteFeatures(getSelectedFeatures(selected),activeScheme)}, activeScheme), [selected,activeScheme])
 
   const selectedCavities = useMemo(() => {
     if (!activeScheme || selectedCavityIds.length === 0) return []

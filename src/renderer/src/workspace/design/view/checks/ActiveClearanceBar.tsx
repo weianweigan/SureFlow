@@ -1,3 +1,4 @@
+import { projectBody, physicalScheme } from '@shared/design/cavityTree'
 /**
  * 视口主动间隙分析面板 (ActiveClearanceBar)
  * 严格对齐 PRD-FR-04-15 §9 与 SureFlow Design.md 设计规范
@@ -42,8 +43,8 @@ export const ActiveClearanceBar: React.FC<ActiveClearanceBarProps> = ({ projectI
 
   const session = useDesignStore((s) => s.projects[projectId])
   const doc = session?.doc
-  const baseBody = doc?.baseBody
-  const activeScheme = doc?.schemes.find((s) => s.id === doc.activeSchemeId) || doc?.schemes[0]
+  const baseBody = projectBody(doc)
+  const activeScheme = physicalScheme(doc?.schemes.find((s) => s.id === doc.activeSchemeId) || doc?.schemes[0])
 
   // 浮窗位置与尺寸（支持自由拖拽与缩放）
   const [pos, setPos] = useState<{ x: number; y: number }>({ x: 16, y: 56 })
@@ -123,12 +124,12 @@ export const ActiveClearanceBar: React.FC<ActiveClearanceBarProps> = ({ projectI
 
   // 实体名称映射
   const allFaces: BaseFaceDefinition[] = useMemo(() => {
-    if (!doc?.baseBody) return []
+    if (!projectBody(doc)) return []
     return (
-      doc.baseBody.faces ||
-      getFacesForTemplate(doc.baseBody.template, doc.baseBody.dimensions, doc.baseBody.extraParams)
+      projectBody(doc).faces ||
+      getFacesForTemplate(projectBody(doc).template, projectBody(doc).dimensions, projectBody(doc).extraParams)
     )
-  }, [doc?.baseBody])
+  }, [projectBody(doc)])
 
   const getEntityName = (ref: EntityRef): string => {
     if (ref.kind === 'cavity') {

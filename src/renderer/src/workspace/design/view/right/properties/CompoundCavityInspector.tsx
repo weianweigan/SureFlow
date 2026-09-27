@@ -1,3 +1,6 @@
+import { useLibraryStore } from '../../../../library/viewmodel/libraryStore'
+import { resolveAllTemplateHoles } from '../../../geometry/templateHoleResolver'
+import { projectBody, physicalScheme } from '@shared/design/cavityTree'
 import { useLocale as _useLocale } from '@renderer/i18n/useLocale'
 import { t as _t } from '@shared/i18n'
 import React, { useState, useMemo } from 'react'
@@ -10,13 +13,13 @@ import { CoordinateDatumSection } from './CoordinateDatumSection'
 import { QuickTemplatePickerModal } from './QuickTemplatePickerModal'
 import { useDesignStore, type DesignState } from '../../../model/designStore'
 import { TYPE_REGISTRY } from '@shared/cavity/cavityTypeRegistry'
-import type { CavityGroup, CavityInstance } from '@shared/design/types'
+import type { CompoundFrame, CavityInstance } from '@shared/design/types'
 import type { CavityTemplate } from '@shared/cavity/types'
-import { RefreshCw, EyeOff, Eye, Trash2, Ungroup, ChevronRight, Box } from 'lucide-react'
+import { RefreshCw, EyeOff, Eye, Trash2, ChevronRight, Box } from 'lucide-react'
 
 interface CompoundCavityInspectorProps {
   projectId: string
-  group: CavityGroup
+  group: CompoundFrame
 }
 
 export const CompoundCavityInspector: React.FC<CompoundCavityInspectorProps> = ({
@@ -24,27 +27,27 @@ export const CompoundCavityInspector: React.FC<CompoundCavityInspectorProps> = (
   group
 }) => {
   _useLocale()
+  const libraryDoc = useLibraryStore(s => s.doc)
   const session = useDesignStore((s: DesignState) => s.projects[projectId])
-  const moveGroup = useDesignStore((s: DesignState) => s.moveGroup)
-  const rotateGroup = useDesignStore((s: DesignState) => s.rotateGroup)
-  const disbandGroup = useDesignStore((s: DesignState) => s.disbandGroup)
-  const deleteGroup = useDesignStore((s: DesignState) => s.deleteGroup)
-  const toggleGroupSuppressed = useDesignStore((s: DesignState) => s.toggleGroupSuppressed)
-  const replaceGroup = useDesignStore((s: DesignState) => s.replaceGroup)
+  const moveCompound = useDesignStore((s: DesignState) => s.moveCompound)
+  const rotateCompound = useDesignStore((s: DesignState) => s.rotateCompound)
+  const deleteCompound = useDesignStore((s: DesignState) => s.deleteCompound)
+  const toggleCompoundSuppressed = useDesignStore((s: DesignState) => s.toggleCompoundSuppressed)
+  const replaceCompound = useDesignStore((s: DesignState) => s.replaceCompound)
   const selectFeature = useDesignStore((s: DesignState) => s.selectFeature)
 
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false)
 
   if (!session) return null
   const { doc } = session
-  const [sx, sy, sz] = doc.baseBody.dimensions
-  const activeScheme = doc.schemes.find((s) => s.id === doc.activeSchemeId) || doc.schemes[0]
+  const [sx, sy, sz] = projectBody(doc).dimensions
+  const activeScheme = physicalScheme(doc.schemes.find((s) => s.id === doc.activeSchemeId) || doc.schemes[0])
 
   // 获取子孔列表
   const memberCavities = useMemo(() => {
     const ids = new Set(group.cavityIds)
     return (activeScheme?.cavities || []).filter(
-      (c: CavityInstance) => ids.has(c.instanceId) || c.groupId === group.id
+      (c: CavityInstance) => ids.has(c.instanceId) || c.parentId === group.id
     )
   }, [activeScheme, group])
 
@@ -77,25 +80,21 @@ export const CompoundCavityInspector: React.FC<CompoundCavityInspectorProps> = (
 
   // 处理替换组合孔
   const handleReplaceGroup = (newTmpl: CavityTemplate) => {
-    const cavitiesData = (newTmpl.holes || []).map((h, i) => ({
-      templateId: h.ref?.templateId || `sub-${i}`,
-      name: `${newTmpl.name}_${h.name || i + 1}`,
-      subHoleName: h.name,
-      cavityType: h.cavityType,
-      offsetU: Number(h.x) || 0,
-      offsetV: Number(h.y) || 0,
-      steps: h.geometry?.steps,
-      ports: h.geometry?.ports
+    const cavitiesData = resolveAllTemplateHoles(newTmpl, libraryDoc).map(h => ({
+      templateId: newTmpl.id, name: `${newTmpl.name}_${h.name}`, subHoleName:h.name, cavityType:h.cavityType,
+      offsetU:h.uOffset, offsetV:h.vOffset, rotation:h.rotation, tiltAngle:h.tiltAngle, azimuth:h.azimuth, steps:h.steps, ports:h.ports
     }))
 
-    replaceGroup(projectId, group.id, {
+    replaceCompound(projectId, group.id, {
       name: newTmpl.name,
+      templateId: newTmpl.id,
+      outline: newTmpl.geometry?.outline,
       cavityType: newTmpl.cavityType,
       cavities: cavitiesData
     })
   }
 
-  const anySuppressed = memberCavities.some((c) => c.suppressed)
+  const anySuppressed = Boolean(group.suppressed)
 
   return (
     <div className="flex h-full flex-col select-none overflow-y-auto">
@@ -144,7 +143,7 @@ export const CompoundCavityInspector: React.FC<CompoundCavityInspectorProps> = (
         onUpdatePosition={(newU, newV) => {
           const du = newU - groupCenterU
           const dv = newV - groupCenterV
-          moveGroup(projectId, group.id, du, dv)
+          moveCompound(projectId, group.id, du, dv)
         }}
       />
 
@@ -159,7 +158,7 @@ export const CompoundCavityInspector: React.FC<CompoundCavityInspectorProps> = (
             unit="°"
             onChange={(val) => {
               const deltaAngle = val - (group.rotation || 0)
-              rotateGroup(projectId, group.id, deltaAngle)
+              rotateCompound(projectId, group.id, deltaAngle)
             }}
           />
         </PropertyRow>
@@ -188,7 +187,7 @@ export const CompoundCavityInspector: React.FC<CompoundCavityInspectorProps> = (
                     {cav.name}
                   </div>
                   <div className="font-mono text-[10px] text-muted-foreground">
-                    ΔU={(cav.u - groupCenterU).toFixed(1)}, ΔV={(cav.v - groupCenterV).toFixed(1)}
+                    ΔU={((cav.u-groupCenterU)*Math.cos((group.rotation||0)*Math.PI/180)+(cav.v-groupCenterV)*Math.sin((group.rotation||0)*Math.PI/180)).toFixed(2)}, ΔV={(-(cav.u-groupCenterU)*Math.sin((group.rotation||0)*Math.PI/180)+(cav.v-groupCenterV)*Math.cos((group.rotation||0)*Math.PI/180)).toFixed(2)}
                   </div>
                 </div>
               </div>
@@ -199,18 +198,10 @@ export const CompoundCavityInspector: React.FC<CompoundCavityInspectorProps> = (
       </FormSectionWrapper>
 
       {/* 5. 底部操作 */}
-      <div className="p-3 mt-auto border-t border-border/70 grid grid-cols-3 gap-2">
+      <div className="p-3 mt-auto border-t border-border/70 grid grid-cols-2 gap-2">
         <button
           type="button"
-          onClick={() => disbandGroup(projectId, group.id)}
-          className="flex items-center justify-center gap-1 rounded border border-border bg-background py-1.5 text-xs text-foreground hover:bg-accent cursor-pointer"
-        >
-          <Ungroup className="size-3.5 text-muted-foreground" />
-          <span>{_t('解散')}</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => toggleGroupSuppressed(projectId, group.id)}
+          onClick={() => toggleCompoundSuppressed(projectId, group.id)}
           className="flex items-center justify-center gap-1 rounded border border-border bg-background py-1.5 text-xs text-foreground hover:bg-accent cursor-pointer"
         >
           {anySuppressed ? (
@@ -222,7 +213,7 @@ export const CompoundCavityInspector: React.FC<CompoundCavityInspectorProps> = (
         </button>
         <button
           type="button"
-          onClick={() => deleteGroup(projectId, group.id)}
+          onClick={() => deleteCompound(projectId, group.id)}
           className="flex items-center justify-center gap-1 rounded border border-destructive/30 bg-destructive/10 py-1.5 text-xs text-destructive hover:bg-destructive/20 cursor-pointer"
         >
           <Trash2 className="size-3.5" />
