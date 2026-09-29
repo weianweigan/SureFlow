@@ -1710,7 +1710,12 @@ export const DesignViewport: FC<DesignViewportProps> = ({ projectId }) => {
             )}
             onClick={() => void handleSyncCameraToCad()}
           >
-            <Camera className={cn("size-3.5", isSyncingCamera && "animate-pulse")} />
+            <img
+              src={`${import.meta.env.BASE_URL}SyncCamera.svg`}
+              alt={_t("同步视角至 CAD")}
+              className={cn("size-4 select-none object-contain", isSyncingCamera && "animate-pulse")}
+              draggable={false}
+            />
           </button>
 
           <div className="h-4 w-px bg-border mx-0.5" />
