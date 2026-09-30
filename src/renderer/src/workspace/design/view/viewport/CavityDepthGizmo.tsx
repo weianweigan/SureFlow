@@ -8,7 +8,6 @@ import { cavityAxis, profileBands, type Vec3 } from '@shared/design/cavityGeomet
 import { useMemo, useRef, useState, useEffect, type FC } from 'react'
 import * as THREE from 'three'
 import { ThreeEvent, useFrame, useThree } from '@react-three/fiber'
-import { Html } from '@react-three/drei'
 import { useDesignStore } from '../../model/designStore'
 import { useLibraryStore } from '../../../library/viewmodel/libraryStore'
 import { getCavitySteps, buildCavityThreeGeometry } from '../../geometry/cavityProfileBuilder'
@@ -48,9 +47,7 @@ const MOUTH_ORIGIN_CORE_GEOM = new THREE.CircleGeometry(3, 32)
  */
 export const CavityDepthGizmo: FC<CavityDepthGizmoProps> = ({
   projectId,
-  dimensions,
-  onOpenInclinedPopover,
-  isInclinedPopoverOpen
+  dimensions
 }) => {
   _useLocale()
   const { camera, gl } = useThree()
@@ -423,7 +420,7 @@ export const CavityDepthGizmo: FC<CavityDepthGizmoProps> = ({
   }
 
   const isDepthActive = isDraggingDepth || isHovered
-  const hasTilt = Boolean(activeCavity.tiltAngle && activeCavity.tiltAngle > 0)
+  // const hasTilt = Boolean(activeCavity.tiltAngle && activeCavity.tiltAngle > 0)
 
   return (
     <group renderOrder={350} userData={{ interactionPriority: 'gizmo' }}>
