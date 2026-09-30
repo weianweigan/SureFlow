@@ -94,9 +94,20 @@ describe('projectService: writeProject & readProject', () => {
     const doc=createDefaultProject('Nested')
     doc.schemes[0].cavities=[{kind:'compound',instanceId:'parent',name:'Parent',libraryId:'lib',templateId:'tpl',faceId:'top',u:30,v:40,rotation:15,suppressed:false,children:[{instanceId:'child',name:'Child',libraryId:'lib',templateId:'tpl',u:5,v:0,rotation:20,depthOffset:0,suppressed:true}]}]
     const second=structuredClone(doc.schemes[0]);second.id='second';second.baseBody.dimensions=[200,150,100];doc.schemes.push(second)
-    const filePath=path.join(tmpDir,'Nested.sfb');await writeProject({filePath,doc})
-    const loaded=await readProject(filePath)
-    expect(loaded.doc).toEqual(doc);expect(loaded.doc.schemaVersion).toBe('2.0.0');expect('baseBody' in loaded.doc).toBe(false);expect('groups' in loaded.doc.schemes[0]).toBe(false)
+    const filePath = path.join(tmpDir, 'Nested.sfb')
+    await writeProject({ filePath, doc })
+    const loaded = await readProject(filePath)
+    expect(loaded.doc).toEqual({
+      ...doc,
+      meta: {
+        ...doc.meta,
+        modifiedAt: loaded.doc.meta.modifiedAt
+      }
+    })
+    expect(Date.parse(loaded.doc.meta.modifiedAt)).not.toBeNaN()
+    expect(loaded.doc.schemaVersion).toBe('2.0.0')
+    expect('baseBody' in loaded.doc).toBe(false)
+    expect('groups' in loaded.doc.schemes[0]).toBe(false)
   })
   it('opens legacy holes independently and saves without old groups or project body', async () => {
     const current=createDefaultProject(),body=current.schemes[0].baseBody
